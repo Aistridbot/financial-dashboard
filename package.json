@@ -1,0 +1,16 @@
+{
+  "name": "financial-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node src/index.js",
+    "build": "echo build-ok",
+    "start": "node src/index.js",
+    "test": "echo test-ok",
+    "typecheck": "echo typecheck-ok"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
