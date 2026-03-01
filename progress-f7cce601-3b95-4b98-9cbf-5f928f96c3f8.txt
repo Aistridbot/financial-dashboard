@@ -20,6 +20,7 @@ Started: 2026-03-01 17:52 CET
 - Dashboard UI scripts should treat API-backed tables as explicit state machines (loading/error/empty/table) and keep formatting helpers deterministic (`YYYY-MM-DD`, fixed precision, fixed currency locale) to stabilize tests.
 - For dashboard mutations, client script should centralize fetch-side effects (refresh summary + transactions together) so write operations and read-model cards/tables stay in sync after successful submit.
 - End-to-end API/UI integration coverage uses a real ephemeral HTTP server + temp SQLite DB per test, with injected stock-provider stubs for deterministic summary assertions.
+- PR-readiness docs are regression-tested with `node:test` by asserting required commands, route docs, checklist anchors, and guarded script order directly from repository files.
 
 ---
 
@@ -219,4 +220,21 @@ Started: 2026-03-01 17:52 CET
 - Confirmed repository/test command wiring includes integration suite automatically via `npm test` (`node --test`) and exits non-zero on assertion failures.
 - Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
 - **Learnings:** Integration tests in this codebase should stay black-box at HTTP level (not module internals) to validate API contracts and UI wiring together.
+---
+
+## 2026-03-01 19:36 CET - US-011: Prepare PR-ready guardrails, docs, and verification checklist
+- Replaced `README.md` with complete MVP runbook and reviewer docs:
+  - install/setup commands
+  - migrate/seed/run/test/typecheck commands
+  - guarded command sequence (`npm run verify:guarded`)
+  - implemented API endpoints and dashboard UI behavior reference
+- Added `docs/PR_CHECKLIST.md` with mechanically verifiable PR checks for environment setup, API routes, UI flow, and quality gates.
+- Added `src/docs/prReadiness.test.js` to enforce documentation guardrails:
+  - README command coverage checks
+  - API/UI documentation presence checks
+  - PR checklist artifact checks
+  - package script order checks for guarded verification sequence
+- Updated `package.json` scripts with `verify:guarded` (`build -> test -> typecheck`) to support local and CI-ready gated execution.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`, `npm run verify:guarded`.
+- **Learnings:** Documentation can be made regression-safe by testing required command strings and checklist anchors directly in node:test, preventing accidental reviewer-workflow drift.
 ---
