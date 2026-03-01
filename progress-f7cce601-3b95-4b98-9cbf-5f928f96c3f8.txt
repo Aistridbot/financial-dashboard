@@ -13,6 +13,7 @@ Started: 2026-03-01 17:52 CET
 - Repository-level domain errors are modeled with stable `code` values (`VALIDATION_ERROR`, `NOT_FOUND`, `FK_VIOLATION`) so handlers can return consistent HTTP responses.
 - API route modules follow dependency injection: route code takes provider instances, while provider selection is centralized in a factory driven by environment variables.
 - HTTP errors should use a single `{ error: { code, message, details? } }` JSON contract so clients can handle failures consistently across endpoints.
+- Route handlers should keep transport-level validation (allowed body fields, request shape) in route modules and rely on repository validation for domain-level constraints.
 
 ---
 
@@ -77,4 +78,18 @@ Started: 2026-03-01 17:52 CET
   - env-driven provider selection and live-provider guardrails
 - Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
 - **Learnings:** Keeping provider selection in one factory and injecting into app creation allows environment-level switching without route changes and keeps endpoint tests deterministic.
+---
+
+## 2026-03-01 18:24 CET - US-004: Expose portfolio CRUD API endpoints
+- Added shared API error helpers in `src/api/errors.js` and reused them from stock routes for a single error response contract.
+- Added portfolio route module `src/portfolios/routes.js` implementing:
+  - `GET /api/portfolios` (list)
+  - `POST /api/portfolios` (create, returns 201 + resource)
+  - `GET /api/portfolios/:id` (detail)
+  - `PATCH /api/portfolios/:id` (allows only `name`, `baseCurrency`; rejects unknown fields with 400/`UNKNOWN_FIELDS`)
+  - `DELETE /api/portfolios/:id` (explicit contract: 204 No Content on success, 404 when id is missing)
+- Wired repository-backed portfolio routes into app bootstrap in `src/index.js` and enabled `express.json()` body parsing.
+- Added endpoint integration tests in `src/portfolios/portfolioEndpoints.test.js` covering create/list/detail/update/delete, unknown-field rejection, and missing-id behavior.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Transport-level validation (unknown body keys) belongs at route boundary while repository validation remains source of truth for data/domain constraints.
 ---
