@@ -7,6 +7,8 @@ Started: 2026-03-01 16:18 CET
 - Planner-style agent output is parsed as case-insensitive `KEY: value` lines, then normalized in a second pass.
 - Normalization returns a machine-readable result shape: `{ ok: true, value }` for success and `{ ok: false, error }` for failures.
 - Tests use Node's built-in test runner (`node:test`) and run via `npm test` (`node --test`).
+- Pipeline orchestration should reject raw planner text and only accept normalized planner payloads as input.
+- Story scheduling is deterministic by mapping `stories_json` in-order and annotating each record with a numeric `order` index.
 
 ---
 
@@ -18,4 +20,13 @@ Started: 2026-03-01 16:18 CET
 - Added tests in `src/plannerOutput.test.js` for normalization success and failure paths.
 - Updated `package.json` test script to execute the test suite with `node --test`.
 - **Learnings:** This repository currently uses lightweight JavaScript + Node built-ins, so reusable utilities and tests should stay dependency-light.
+---
+
+## 2026-03-01 16:29 CET - US-002: Wire normalized planner payload into story creation and execution pipeline
+- Implemented `src/runPipeline.js` with `buildExecutionPlan()` to consume normalized planner payload as the single source of truth (`repo`, `branch`, `stories_json`).
+- Added story-record creation (`createStoryRecords`) that preserves declared planner order and annotates records with `order` + pending status for downstream execution.
+- Added max-story guardrail (default/configurable, set to 3 in tests) that aborts pre-execution with a clear error when planner output exceeds configured limit.
+- Added orchestration tests in `src/runPipeline.test.js` covering normalized payload consumption, repaired-key success path with order preservation, max-story abort behavior, and rejection of non-normalized/raw input.
+- Ran full checks: `npm test`, `npm run typecheck`, `npm run build`.
+- **Learnings:** Keep orchestration boundaries explicit—normalization and execution planning are separate modules, and planner raw text must not leak past normalization.
 ---
