@@ -1,0 +1,21 @@
+# Progress Log
+Run: f69cd0ad-a2ce-409b-b353-9566e7c0d9b4
+Task: SMOKE END-TO-END (ANTI-HANG) for financial-dashboard stories
+Started: 2026-02-28 23:18 CET
+
+## Codebase Patterns
+- Keep deterministic fixture-like backend data under `db/*.json` and load it from repositories via absolute paths resolved from module location.
+- Repository modules in `src/data` should validate required fields and throw explicit `Invalid ...` errors so routes/tests can rely on deterministic failure messages.
+- Type checking is enforced with `tsc --noEmit` on JavaScript files under `src/`, so add JSDoc typing/casts when indexing dynamic object keys.
+
+---
+
+## 2026-02-28 23:18 CET - US-001: Add minimal local data schema and loader for dashboard smoke flow
+- Added version-controlled local schema data file at `db/dashboard-data.json` with required metrics: `revenue`, `expenses`, and `netIncome` (plus `currency` and `period`).
+- Implemented `src/data/dashboardRepository.js` exposing `loadDashboardData` and validation logic.
+- Validation now enforces required numeric fields and throws deterministic errors for missing/invalid values.
+- Added unit tests in `tests/dashboardRepository.test.js` for happy path loading and deterministic missing-field failure.
+- Verified quality gates: `npm run typecheck`, `npm run build`, and `npm test` all pass.
+- Files changed: `db/dashboard-data.json`, `src/data/dashboardRepository.js`, `tests/dashboardRepository.test.js`, `progress-f69cd0ad-a2ce-409b-b353-9566e7c0d9b4.txt`.
+- **Learnings:** The repo already supports strict JS type checking, so repository-level JSDoc typing is required for dynamic field validation loops.
+---

@@ -1,0 +1,40 @@
+# Progress Log
+Run: 29aa34ff-1b36-4f3b-9dd5-fbe35535eb95
+Task: RESUME BASELINE: PR262 + planner/setup contract guard. Canonical repo /Users/aistridbot/.openclaw/workspace/financial-dashboard, max 3 stories, proceed full pipeline.
+Started: 2026-03-01 13:57 CET
+
+## Codebase Patterns
+- Data repositories live in `src/data/` and expose a default db path constant plus `load*` and `assertValid*` functions.
+- Deterministic validation errors are asserted in Jest tests using exact `.toThrow(...)` message matches.
+- Contract fixtures are version-controlled under `db/*.json`, and validators enforce exact value/order for contract arrays to prevent drift.
+- Contract guard validators should load the baseline fixture from `pr262BaselineContractRepository` so canonical repo, required keys, and max story limits stay centralized.
+- API-level validation endpoints live in `src/app.js` and return deterministic `{ valid: false, error }` 400 responses so Supertest integration tests can assert exact error payloads.
+
+---
+
+## 2026-03-01 14:00 CET - US-001: Add PR262 baseline contract fixture for planner/setup outputs
+- Added canonical baseline fixture `db/pr262-baseline-contract.json` with fixed `canonicalRepo`, `maxStories: 3`, and explicit planner/setup required keys.
+- Implemented `src/data/pr262BaselineContractRepository.js` with strict validation and deterministic error messages for object shape, canonical path, max stories value, and exact required key arrays.
+- Added repository tests in `tests/pr262BaselineContractRepository.test.js` for success path and contract-drift failures (`canonicalRepo`, planner keys, setup keys).
+- Ran `npm run typecheck`, `npm run build`, and `npm test` successfully.
+- **Learnings:** For pipeline contracts, validating exact key order/content in fixtures gives deterministic contract-guard behavior and clear failure diagnostics.
+---
+
+## 2026-03-01 14:08 CET - US-002: Implement backend contract guard validator for planner/setup payloads
+- Added `src/data/contractGuardValidator.js` with `assertValidPlannerPayload` and `assertValidSetupPayload`.
+- Validator now loads the PR262 baseline contract fixture and enforces planner/setup required keys, canonical `REPO`, `STORIES_JSON` array type, max stories (`3`), and deterministic duplicate story id detection.
+- Added deterministic planner/setup missing-key and guardrail error messages aligned with existing repository tests.
+- Added tests in `tests/contractGuardValidator.test.js` covering valid payloads and failure paths for max stories, duplicate ids, canonical repo mismatch, and missing setup keys.
+- Ran `npm run typecheck`, `npm run build`, and `npm test` successfully.
+- **Learnings:** Keeping payload validation contract-driven (instead of hardcoded per validator) prevents drift and keeps planner/setup guardrails synchronized.
+---
+
+## 2026-03-01 14:18 CET - US-003: Add integration API coverage for contract guard execution path
+- Added POST validation endpoints in `src/app.js`: `/contracts/planner/validate` and `/contracts/setup/validate`.
+- Wired endpoints to `assertValidPlannerPayload` / `assertValidSetupPayload` from `contractGuardValidator`.
+- Added deterministic success/failure response contract: successful validations return `200 { valid: true }`; validation failures return `400 { valid: false, error: <deterministic message> }`.
+- Preserved existing `/health` endpoint behavior unchanged.
+- Added integration tests in `tests/contractGuardApi.test.js` for planner happy path and failure cases (missing key, non-canonical repo, duplicate story id, >3 stories) and setup happy path plus missing required key failure.
+- Ran `npm run typecheck`, `npm run build`, and `npm test` successfully.
+- **Learnings:** Contract-guard API integration is easiest to keep deterministic by surfacing validator error messages directly in JSON error responses and asserting full response bodies in Supertest.
+---

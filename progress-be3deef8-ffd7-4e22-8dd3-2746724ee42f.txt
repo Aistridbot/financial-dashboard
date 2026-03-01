@@ -1,0 +1,21 @@
+# Progress Log
+Run: be3deef8-ffd7-4e22-8dd3-2746724ee42f
+Task: Build financial dashboard MVP via feature-dev workflow
+Started: 2026-02-28 22:23 CET
+
+## Codebase Patterns
+- Keep the Express app construction in `src/app.js` and start listening only in `src/index.js` so tests can import the app without opening a port.
+- Use Jest + Supertest for HTTP route tests; place baseline API tests in `tests/*.test.js`.
+- Type checking is enforced with `tsc --noEmit` using `allowJs` + `checkJs` in `tsconfig.json` for this JavaScript codebase.
+
+---
+
+## 2026-02-28 22:23 CET - US-001: Set up enforceable test and typecheck toolchain
+- Replaced placeholder `test` and `typecheck` scripts with real commands (`jest --ci --runInBand` and `tsc --noEmit`).
+- Added toolchain dependencies and baseline config: Jest configuration in `package.json` and a strict `tsconfig.json` for JS type checking.
+- Refactored Express server into `src/app.js` + `src/index.js` split to enable route testing.
+- Added `tests/health.test.js` that verifies `GET /health` returns HTTP 200 and `{ status: 'ok' }`.
+- Updated README with explicit test and typecheck command documentation.
+- Files changed: `package.json`, `package-lock.json`, `README.md`, `src/index.js`, `src/app.js`, `tests/health.test.js`, `tsconfig.json`, `progress-be3deef8-ffd7-4e22-8dd3-2746724ee42f.txt`.
+- **Learnings:** For this repo, strict JS type checks are practical without migration to TypeScript by enabling `checkJs`; app/listener separation is required for clean HTTP tests.
+---
