@@ -1,6 +1,6 @@
 # Progress Log
 Run: f7cce601-3b95-4b98-9cbf-5f928f96c3f8
-Task: FULL FINANCIAL MVP: canonical repo baseline; this session implements US-001 schema + migration + seed foundation.
+Task: FULL FINANCIAL MVP: canonical repo baseline; this session implements US-001 schema + migration + seed foundation, then US-002 repository/data-access layer.
 Started: 2026-03-01 17:52 CET
 
 ## Codebase Patterns
@@ -9,6 +9,8 @@ Started: 2026-03-01 17:52 CET
 - DB location is resolved by `FINANCIAL_DB_PATH` override (for tests) and defaults to `.data/financial.db` for local runs.
 - Test isolation uses temp SQLite file paths per test case and verifies schema contracts via SQLite PRAGMA introspection.
 - Tests use Node's built-in test runner (`node --test`) and repository scripts should remain minimal/commonjs-compatible.
+- Data-access modules should normalize API-facing shape (camelCase fields) while mapping to SQL snake_case columns at query boundaries.
+- Repository-level domain errors are modeled with stable `code` values (`VALIDATION_ERROR`, `NOT_FOUND`, `FK_VIOLATION`) so handlers can return consistent HTTP responses.
 
 ---
 
@@ -31,4 +33,24 @@ Started: 2026-03-01 17:52 CET
   - seed inserts deterministic records and expected counts
 - Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
 - **Learnings:** Using explicit DB path override keeps tests hermetic and avoids coupling to workspace-local DB files.
+---
+
+## 2026-03-01 18:06 CET - US-002: Add repository/data-access layer for portfolios, holdings, and transactions
+- Added `src/repositories/financialRepository.js` with dedicated repository functions for:
+  - portfolios: `createPortfolio`, `listPortfolios`, `getPortfolioById`, `updatePortfolio`, `deletePortfolio`
+  - holdings: `createHolding`, `listHoldingsByPortfolio`
+  - transactions: `createTransaction`, `listTransactionsByPortfolio`
+- Implemented repository-boundary normalization and validation:
+  - trims required text fields
+  - uppercases `symbol` and `baseCurrency`
+  - normalizes dates to ISO strings
+  - parses numeric inputs for `quantity`, `averageCost`, `price`, `totalAmount` and rejects invalid/negative values
+- Added structured repository errors via `RepositoryError` with stable `code` values:
+  - `VALIDATION_ERROR` for invalid input
+  - `NOT_FOUND` for missing portfolio in get/update/delete
+  - `FK_VIOLATION` for foreign key constraint failures in holdings/transactions inserts
+- Covered schema delete behavior (ON DELETE CASCADE): deleting a portfolio removes related holdings and transactions.
+- Added `src/repositories/financialRepository.test.js` covering CRUD, validation, FK violations, and cascade behavior.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Keeping SQL-column mapping isolated in repository methods preserves clean camelCase contracts for upper layers and simplifies handler testing.
 ---
