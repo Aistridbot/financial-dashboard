@@ -17,6 +17,7 @@ Started: 2026-03-01 17:52 CET
 - Position-changing writes (buy/sell transactions) should run in an explicit SQLite `BEGIN`/`COMMIT` block so holding mutations and transaction inserts stay atomic.
 - Dashboard aggregate endpoints should degrade gracefully: when quote data is missing, use deterministic fallback pricing from holdings and include warning metadata explaining fallback behavior.
 - UI testability pattern: expose stable `data-testid` hooks and deterministic loading/error copy so route-level and client-script checks remain robust without browser-only tooling.
+- Dashboard UI scripts should treat API-backed tables as explicit state machines (loading/error/empty/table) and keep formatting helpers deterministic (`YYYY-MM-DD`, fixed precision, fixed currency locale) to stabilize tests.
 
 ---
 
@@ -159,4 +160,27 @@ Started: 2026-03-01 17:52 CET
   - `/dashboard.js` deterministic state messaging and selector targeting
 - Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
 - **Learnings:** Keeping UI state copy and test selectors centralized in one route/module enables stable black-box UI testing even with lightweight server-rendered HTML + vanilla client script.
+---
+
+## 2026-03-01 19:02 CET - US-008: Build transactions table UI with portfolio selector and refresh flow
+- Extended dashboard UI markup in `src/dashboard/ui.js` with a transactions section that includes:
+  - portfolio selector (loaded from `/api/portfolios`)
+  - deterministic loading/error/empty-state elements
+  - transactions table with required columns: date, symbol, side, quantity, price, total
+- Implemented client-side refresh flow in `/dashboard.js`:
+  - fetches portfolios and initializes selector
+  - fetches `/api/portfolios/:id/transactions` for selected portfolio
+  - refetches transactions when selector value changes
+  - preserves newest-first API ordering and renders rows in returned order
+- Added deterministic formatting helpers for transaction display:
+  - `formatTransactionDate` => `YYYY-MM-DD`
+  - `formatQuantity` => fixed 4 decimal places
+  - existing `formatCurrency` reused for price/total
+- Added explicit empty-state message rendering path for portfolios with zero transactions (no blank table).
+- Expanded UI tests in `src/dashboard/ui.test.js`:
+  - helper tests for date/quantity formatting determinism
+  - dashboard HTML assertions for selector, table, and required headers
+  - dashboard client-script assertions for portfolios fetch, transactions fetch, selector change wiring, and formatting functions
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** For lightweight server-rendered pages, encode table state transitions in deterministic script copy/selectors so endpoint, script, and markup contracts stay testable without full browser automation.
 ---

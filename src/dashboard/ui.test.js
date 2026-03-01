@@ -6,6 +6,8 @@ const { createApp } = require('../index');
 const {
   formatCurrency,
   formatPercent,
+  formatQuantity,
+  formatTransactionDate,
   toSummaryViewModel,
 } = require('./ui');
 
@@ -29,6 +31,13 @@ test('format helpers keep currency and percentage formatting stable', () => {
   assert.equal(formatPercent(0), '0.00%');
 });
 
+test('transaction format helpers keep date and quantity deterministic', () => {
+  assert.equal(formatQuantity(12), '12.0000');
+  assert.equal(formatQuantity(1.23456), '1.2346');
+  assert.equal(formatTransactionDate('2026-03-01T18:55:01.000Z'), '2026-03-01');
+  assert.equal(formatTransactionDate('invalid-date'), 'Invalid date');
+});
+
 test('summary view model exposes formatted card values', () => {
   const model = toSummaryViewModel({
     totalValue: 1400,
@@ -48,7 +57,7 @@ test('summary view model exposes formatted card values', () => {
   });
 });
 
-test('GET /dashboard renders summary cards with deterministic selectors and semantic headings', async () => {
+test('GET /dashboard renders summary cards and transactions table scaffolding', async () => {
   const app = createApp({ env: { STOCK_PROVIDER: 'stub' } });
 
   await withServer(app, async (baseUrl) => {
@@ -71,10 +80,20 @@ test('GET /dashboard renders summary cards with deterministic selectors and sema
     assert.match(html, /<h2>Invested<\/h2>/);
     assert.match(html, /<h2>Day change<\/h2>/);
     assert.match(html, /<h2>Gain\/loss<\/h2>/);
+
+    assert.match(html, /data-testid="portfolio-selector"/);
+    assert.match(html, /data-testid="transactions-table"/);
+    assert.match(html, /<th>Date<\/th>/);
+    assert.match(html, /<th>Symbol<\/th>/);
+    assert.match(html, /<th>Side<\/th>/);
+    assert.match(html, /<th>Quantity<\/th>/);
+    assert.match(html, /<th>Price<\/th>/);
+    assert.match(html, /<th>Total<\/th>/);
+    assert.match(html, /No transactions found for this portfolio\./);
   });
 });
 
-test('GET /dashboard.js exposes deterministic loading and error state messages', async () => {
+test('GET /dashboard.js exposes deterministic transaction loading and formatting flow', async () => {
   const app = createApp({ env: { STOCK_PROVIDER: 'stub' } });
 
   await withServer(app, async (baseUrl) => {
@@ -85,7 +104,10 @@ test('GET /dashboard.js exposes deterministic loading and error state messages',
     assert.equal(response.headers.get('content-type').includes('application/javascript'), true);
     assert.match(source, /Missing portfolioId query parameter/);
     assert.match(source, /Unable to load dashboard summary\. Please retry\./);
-    assert.match(source, /summary-value-total-value/);
-    assert.match(source, /summary-value-gain-loss-percent/);
+    assert.match(source, /fetch\('\/api\/portfolios'\)/);
+    assert.match(source, /fetch\('\/api\/portfolios\/' \+ encodeURIComponent\(selectedPortfolioId\) \+ '\/transactions'\)/);
+    assert.match(source, /portfolioSelector\.addEventListener\('change'/);
+    assert.match(source, /formatTransactionDate/);
+    assert.match(source, /formatQuantity/);
   });
 });
