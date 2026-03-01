@@ -9,6 +9,7 @@ Started: 2026-03-01 16:18 CET
 - Tests use Node's built-in test runner (`node:test`) and run via `npm test` (`node --test`).
 - Pipeline orchestration should reject raw planner text and only accept normalized planner payloads as input.
 - Story scheduling is deterministic by mapping `stories_json` in-order and annotating each record with a numeric `order` index.
+- End-to-end run tests use text fixtures under `src/fixtures/` and assert stage progression with explicit `stage` + `artifacts` fields.
 
 ---
 
@@ -29,4 +30,14 @@ Started: 2026-03-01 16:18 CET
 - Added orchestration tests in `src/runPipeline.test.js` covering normalized payload consumption, repaired-key success path with order preservation, max-story abort behavior, and rejection of non-normalized/raw input.
 - Ran full checks: `npm test`, `npm run typecheck`, `npm run build`.
 - **Learnings:** Keep orchestration boundaries explicit—normalization and execution planning are separate modules, and planner raw text must not leak past normalization.
+---
+
+## 2026-03-01 16:37 CET - US-003: Add end-to-end run coverage from planner auto-repair through PR handoff
+- Added `src/autoRepairPipeline.js` to execute integration-stage flow in test mode: normalize -> execution plan -> story stub execution -> verification -> PR preparation.
+- Added RUN #17 fixture `src/fixtures/run17-planner-missing-keys.txt` containing planner output with missing `repo`, `branch`, and `stories_json`.
+- Extended `normalizePlannerOutput()` to support `repairedStoriesJson` fallback so omitted `stories_json` can be auto-repaired in integration flows while preserving failure behavior when no repair data exists.
+- Added `src/autoRepairPipeline.test.js` integration test validating canonical repo/branch metadata, ordered stories derived from repaired stories JSON, and successful PR-ready handoff status.
+- Expanded `src/plannerOutput.test.js` with explicit coverage for repaired stories fallback behavior.
+- Ran full checks: `npm test`, `npm run typecheck`, `npm run build`.
+- **Learnings:** For end-to-end reliability, repair inputs should be injected only at normalization boundaries; downstream orchestration can stay strict and deterministic.
 ---

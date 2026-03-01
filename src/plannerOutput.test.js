@@ -46,6 +46,20 @@ test('returns machine-readable failure when stories_json is missing', () => {
   });
 });
 
+test('uses repaired stories_json fallback when planner omits field', () => {
+  const result = normalizePlannerOutput('STATUS: done', {
+    defaultBranch: 'feature-dev',
+    repairedStoriesJson: '[{"id":"US-003"},{"id":"US-004"}]',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.value, {
+    repo: DEFAULT_CANONICAL_REPO,
+    branch: 'feature-dev',
+    stories_json: [{ id: 'US-003' }, { id: 'US-004' }],
+  });
+});
+
 test('returns machine-readable failure when stories_json is invalid JSON', () => {
   const result = normalizePlannerOutput('STORIES_JSON: {not-json}', {
     defaultBranch: 'feature-dev',

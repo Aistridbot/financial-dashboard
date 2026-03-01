@@ -32,7 +32,12 @@ function normalizePlannerOutput(raw, options = {}) {
   const repo = parsed.repo === canonicalRepo ? parsed.repo : canonicalRepo;
   const branch = parsed.branch && parsed.branch.trim() ? parsed.branch.trim() : defaultBranch;
 
-  if (!parsed.stories_json || !parsed.stories_json.trim()) {
+  const storiesJsonSource =
+    parsed.stories_json && parsed.stories_json.trim()
+      ? parsed.stories_json
+      : options.repairedStoriesJson;
+
+  if (!storiesJsonSource || !String(storiesJsonSource).trim()) {
     return {
       ok: false,
       error: {
@@ -45,7 +50,7 @@ function normalizePlannerOutput(raw, options = {}) {
 
   let stories;
   try {
-    stories = JSON.parse(parsed.stories_json);
+    stories = JSON.parse(storiesJsonSource);
   } catch (_error) {
     return {
       ok: false,
