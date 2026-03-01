@@ -1,0 +1,17 @@
+[
+  {
+    "id": "US-001",
+    "sequence": 1,
+    "title": "Load dashboard seed"
+  },
+  {
+    "id": "US-002",
+    "sequence": 2,
+    "title": "Run smoke build"
+  },
+  {
+    "id": "US-003",
+    "sequence": 3,
+    "title": "Run smoke tests"
+  }
+]

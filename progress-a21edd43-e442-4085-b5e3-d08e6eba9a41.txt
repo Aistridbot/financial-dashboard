@@ -1,0 +1,20 @@
+# Progress Log
+Run: a21edd43-e442-4085-b5e3-d08e6eba9a41
+Task: PATCH-262 SMOKE: Use only /Users/aistridbot/.openclaw/workspace/financial-dashboard. Max 3 tiny stories. Validate full pipeline no duplicate stories and no stuck after story 1.
+Started: 2026-03-01 07:48 CET
+
+## Codebase Patterns
+- Data repositories live in `src/data/` and expose a default db path constant plus `load*` and `assertValid*` functions.
+- Deterministic validation errors are asserted in Jest tests using exact `.toThrow(...)` message matches.
+- Seed data is stored in `db/*.json` and treated as repository-backed source-of-truth fixtures.
+
+---
+
+## 2026-03-01 07:48 CET - US-001: Add canonical smoke story seed data with unique ordered IDs
+- Implemented canonical smoke story seed file at `db/smoke-stories.json` with exactly 3 stories, unique IDs, and explicit `sequence` values 1..3.
+- Added new repository module `src/data/smokeStoryRepository.js` to load and validate smoke stories.
+- Added validation rules for duplicate story IDs, missing/non-integer sequence, and non-sequential ordering.
+- Added `tests/smokeStoryRepository.test.js` covering success path, duplicate IDs, non-sequential sequence, and missing sequence validation.
+- Ran `npm run typecheck`, `npm run build`, and `npm test` successfully.
+- **Learnings:** Existing project convention is deterministic, human-readable error strings from validators that are asserted directly in tests.
+---
