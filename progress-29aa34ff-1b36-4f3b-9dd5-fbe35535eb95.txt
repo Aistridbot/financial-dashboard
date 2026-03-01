@@ -1,0 +1,19 @@
+# Progress Log
+Run: 29aa34ff-1b36-4f3b-9dd5-fbe35535eb95
+Task: RESUME BASELINE: PR262 + planner/setup contract guard. Canonical repo /Users/aistridbot/.openclaw/workspace/financial-dashboard, max 3 stories, proceed full pipeline.
+Started: 2026-03-01 13:57 CET
+
+## Codebase Patterns
+- Data repositories live in `src/data/` and expose a default db path constant plus `load*` and `assertValid*` functions.
+- Deterministic validation errors are asserted in Jest tests using exact `.toThrow(...)` message matches.
+- Contract fixtures are version-controlled under `db/*.json`, and validators enforce exact value/order for contract arrays to prevent drift.
+
+---
+
+## 2026-03-01 14:00 CET - US-001: Add PR262 baseline contract fixture for planner/setup outputs
+- Added canonical baseline fixture `db/pr262-baseline-contract.json` with fixed `canonicalRepo`, `maxStories: 3`, and explicit planner/setup required keys.
+- Implemented `src/data/pr262BaselineContractRepository.js` with strict validation and deterministic error messages for object shape, canonical path, max stories value, and exact required key arrays.
+- Added repository tests in `tests/pr262BaselineContractRepository.test.js` for success path and contract-drift failures (`canonicalRepo`, planner keys, setup keys).
+- Ran `npm run typecheck`, `npm run build`, and `npm test` successfully.
+- **Learnings:** For pipeline contracts, validating exact key order/content in fixtures gives deterministic contract-guard behavior and clear failure diagnostics.
+---

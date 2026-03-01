@@ -1,0 +1,10 @@
+{
+  "canonicalRepo": "/Users/aistridbot/.openclaw/workspace/financial-dashboard",
+  "maxStories": 3,
+  "planner": {
+    "requiredKeys": ["STATUS", "REPO", "BRANCH", "STORIES_JSON"]
+  },
+  "setup": {
+    "requiredKeys": ["STATUS", "BUILD_CMD", "TEST_CMD", "CI_NOTES", "BASELINE"]
+  }
+}
