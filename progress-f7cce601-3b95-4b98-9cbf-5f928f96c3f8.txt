@@ -1,6 +1,6 @@
 # Progress Log
 Run: f7cce601-3b95-4b98-9cbf-5f928f96c3f8
-Task: FULL FINANCIAL MVP: canonical repo baseline; this session implements US-001 schema + migration + seed foundation, then US-002 repository/data-access layer.
+Task: FULL FINANCIAL MVP: canonical repo baseline; this run is delivering API + dashboard UI stories sequentially.
 Started: 2026-03-01 17:52 CET
 
 ## Codebase Patterns
@@ -16,6 +16,7 @@ Started: 2026-03-01 17:52 CET
 - Route handlers should keep transport-level validation (allowed body fields, request shape) in route modules and rely on repository validation for domain-level constraints.
 - Position-changing writes (buy/sell transactions) should run in an explicit SQLite `BEGIN`/`COMMIT` block so holding mutations and transaction inserts stay atomic.
 - Dashboard aggregate endpoints should degrade gracefully: when quote data is missing, use deterministic fallback pricing from holdings and include warning metadata explaining fallback behavior.
+- UI testability pattern: expose stable `data-testid` hooks and deterministic loading/error copy so route-level and client-script checks remain robust without browser-only tooling.
 
 ---
 
@@ -136,4 +137,26 @@ Started: 2026-03-01 17:52 CET
 - Added endpoint integration tests in `src/dashboard/summaryEndpoint.test.js` covering deterministic aggregation, fallback warning contract, and 400/404 paths.
 - Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
 - **Learnings:** Dashboard endpoints should verify portfolio existence before aggregate reads so empty-holdings and unknown-portfolio states are distinguishable at HTTP contract level.
+---
+
+## 2026-03-01 18:53 CET - US-007: Build dashboard page with summary cards bound to API
+- Added dashboard UI routes in `src/dashboard/ui.js`:
+  - `GET /dashboard` serves semantic dashboard markup with loading/error regions and four summary cards.
+  - `GET /dashboard.js` serves deterministic client logic that fetches `/api/dashboard/summary` and hydrates the cards.
+- Implemented reusable formatting helpers:
+  - `formatCurrency(value, currency)` for stable currency output.
+  - `formatPercent(value)` for signed percentage output.
+  - `toSummaryViewModel(summary)` to map raw summary payloads into card display values.
+- Ensured deterministic UI states and selectors:
+  - loading state: `data-testid="dashboard-loading"` + exact text `Loading dashboard summary...`
+  - error state: `data-testid="dashboard-error"` + deterministic failure copy
+  - card selectors for value fields (`summary-value-total-value`, `summary-value-invested`, `summary-value-day-change`, `summary-value-gain-loss`, and percent variants)
+- Wired UI route registration into app bootstrap in `src/index.js` without changing existing API endpoint contracts.
+- Added tests in `src/dashboard/ui.test.js` covering:
+  - formatting helper output contracts
+  - summary view model mapping
+  - `/dashboard` markup semantics, headings, and deterministic test ids
+  - `/dashboard.js` deterministic state messaging and selector targeting
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Keeping UI state copy and test selectors centralized in one route/module enables stable black-box UI testing even with lightweight server-rendered HTML + vanilla client script.
 ---

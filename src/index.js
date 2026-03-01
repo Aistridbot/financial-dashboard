@@ -4,6 +4,7 @@ const { registerStockRoutes } = require('./stocks/routes');
 const { createFinancialRepository } = require('./repositories/financialRepository');
 const { registerPortfolioRoutes } = require('./portfolios/routes');
 const { registerDashboardRoutes } = require('./dashboard/routes');
+const { registerDashboardUiRoutes } = require('./dashboard/ui');
 
 function createApp(options = {}) {
   const app = express();
@@ -13,6 +14,7 @@ function createApp(options = {}) {
   app.use(express.json());
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
   app.get('/', (_req, res) => res.send('Financial Dashboard API'));
+  registerDashboardUiRoutes(app);
   registerStockRoutes(app, stockProvider);
   registerPortfolioRoutes(app, repository);
   registerDashboardRoutes(app, repository, stockProvider);
