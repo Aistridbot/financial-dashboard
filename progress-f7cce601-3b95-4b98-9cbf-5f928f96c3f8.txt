@@ -1,0 +1,34 @@
+# Progress Log
+Run: f7cce601-3b95-4b98-9cbf-5f928f96c3f8
+Task: FULL FINANCIAL MVP: canonical repo baseline; this session implements US-001 schema + migration + seed foundation.
+Started: 2026-03-01 17:52 CET
+
+## Codebase Patterns
+- Database persistence uses Node built-in `node:sqlite` (`DatabaseSync`) with synchronous migration/seed scripts to keep setup dependency-light.
+- Migration baseline is tracked in a `schema_migrations` table with monotonic integer versions.
+- DB location is resolved by `FINANCIAL_DB_PATH` override (for tests) and defaults to `.data/financial.db` for local runs.
+- Test isolation uses temp SQLite file paths per test case and verifies schema contracts via SQLite PRAGMA introspection.
+- Tests use Node's built-in test runner (`node --test`) and repository scripts should remain minimal/commonjs-compatible.
+
+---
+
+## 2026-03-01 17:58 CET - US-001: Establish persistent financial schema and migration baseline
+- Added DB infrastructure under `src/db/`:
+  - `connection.js`: DB path resolution + foreign key enablement.
+  - `migrate.js`: migration framework and baseline migration (version 1).
+  - `seed.js`: deterministic fixture seed for demo portfolio data.
+- Implemented migration SQL creating `portfolios`, `holdings`, and `transactions` with explicit PK/FK/not-null/check constraints.
+- Added required lookup indexes:
+  - `idx_holdings_portfolio_id`
+  - `idx_transactions_portfolio_id`
+  - `idx_transactions_holding_id`
+- Added deterministic seed fixture (`portfolio-demo-001`, `holding-aapl-001`, and two transactions) for test usage.
+- Added npm scripts:
+  - `npm run migrate`
+  - `npm run seed`
+- Added `src/db/migrateAndSeed.test.js` to validate:
+  - migration creates tables/FKs/indexes and schema version 1
+  - seed inserts deterministic records and expected counts
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Using explicit DB path override keeps tests hermetic and avoids coupling to workspace-local DB files.
+---
