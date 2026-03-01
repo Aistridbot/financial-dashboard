@@ -2,6 +2,7 @@ const { RepositoryError } = require('../repositories/financialRepository');
 const { createApiError, sendApiError } = require('../api/errors');
 
 const ALLOWED_PORTFOLIO_UPDATE_FIELDS = ['name', 'baseCurrency'];
+const ALLOWED_TRANSACTION_CREATE_FIELDS = ['id', 'type', 'symbol', 'quantity', 'price', 'totalAmount', 'occurredAt', 'createdAt'];
 
 function mapRepositoryError(error) {
   if (error instanceof RepositoryError) {
@@ -9,8 +10,8 @@ function mapRepositoryError(error) {
       return createApiError(404, 'NOT_FOUND', error.message, error.details);
     }
 
-    if (error.code === 'VALIDATION_ERROR') {
-      return createApiError(400, 'VALIDATION_ERROR', error.message, error.details);
+    if (error.code === 'VALIDATION_ERROR' || error.code === 'FK_VIOLATION' || error.code === 'INSUFFICIENT_QUANTITY') {
+      return createApiError(400, error.code, error.message, error.details);
     }
   }
 
@@ -50,6 +51,41 @@ function parseUpdateBody(body) {
   };
 }
 
+function parseTransactionCreateBody(body, portfolioId) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw createApiError(400, 'VALIDATION_ERROR', 'Request body must be a JSON object.');
+  }
+
+  const keys = Object.keys(body);
+  const unknownFields = keys.filter((key) => !ALLOWED_TRANSACTION_CREATE_FIELDS.includes(key));
+  if (unknownFields.length > 0) {
+    throw createApiError(400, 'UNKNOWN_FIELDS', 'Request body contains unknown fields.', {
+      allowedFields: ALLOWED_TRANSACTION_CREATE_FIELDS,
+      unknownFields,
+    });
+  }
+
+  const normalizedType = typeof body.type === 'string' ? body.type.trim().toUpperCase() : body.type;
+  if (normalizedType !== 'BUY' && normalizedType !== 'SELL') {
+    throw createApiError(400, 'VALIDATION_ERROR', 'type must be BUY or SELL', {
+      field: 'type',
+      allowedValues: ['BUY', 'SELL'],
+    });
+  }
+
+  return {
+    id: body.id,
+    portfolioId,
+    type: normalizedType,
+    symbol: body.symbol,
+    quantity: body.quantity,
+    price: body.price,
+    totalAmount: body.totalAmount,
+    occurredAt: body.occurredAt,
+    createdAt: body.createdAt,
+  };
+}
+
 function registerPortfolioRoutes(app, repository) {
   app.get('/api/portfolios', (req, res) => {
     try {
@@ -85,7 +121,6 @@ function registerPortfolioRoutes(app, repository) {
     }
   });
 
-  // Explicit delete contract: 204 No Content when deleted, 404 when id does not exist.
   app.delete('/api/portfolios/:id', (req, res) => {
     try {
       repository.deletePortfolio(req.params.id);
@@ -94,9 +129,35 @@ function registerPortfolioRoutes(app, repository) {
       return sendApiError(res, mapRepositoryError(error));
     }
   });
+
+  app.get('/api/portfolios/:id/holdings', (req, res) => {
+    try {
+      return res.json({ items: repository.listHoldingsByPortfolio(req.params.id) });
+    } catch (error) {
+      return sendApiError(res, mapRepositoryError(error));
+    }
+  });
+
+  app.get('/api/portfolios/:id/transactions', (req, res) => {
+    try {
+      return res.json({ items: repository.listTransactionsByPortfolio(req.params.id) });
+    } catch (error) {
+      return sendApiError(res, mapRepositoryError(error));
+    }
+  });
+
+  app.post('/api/portfolios/:id/transactions', (req, res) => {
+    try {
+      const transaction = repository.createTransaction(parseTransactionCreateBody(req.body, req.params.id));
+      return res.status(201).json(transaction);
+    } catch (error) {
+      return sendApiError(res, mapRepositoryError(error));
+    }
+  });
 }
 
 module.exports = {
   ALLOWED_PORTFOLIO_UPDATE_FIELDS,
+  ALLOWED_TRANSACTION_CREATE_FIELDS,
   registerPortfolioRoutes,
 };

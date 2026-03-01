@@ -52,64 +52,127 @@ test('portfolio CRUD works with normalized values and not-found errors', () => {
   assert.throws(() => repo.deletePortfolio('portfolio-001'), (error) => error && error.code === 'NOT_FOUND');
 });
 
-test('holding and transaction methods normalize numbers/symbols and validate values', () => {
-  const repo = setupRepository('holding-txn');
+test('buy transactions update/create holdings atomically and normalize numeric fields', () => {
+  const repo = setupRepository('buy-holding-updates');
   repo.createPortfolio({ id: 'p1', name: 'Main', baseCurrency: 'usd' });
 
-  const holding = repo.createHolding({
-    id: 'h1',
-    portfolioId: 'p1',
-    symbol: ' aapl ',
-    quantity: '10.5',
-    averageCost: '150.25',
-    createdAt: '2026-01-05',
-  });
-
-  assert.equal(holding.symbol, 'AAPL');
-  assert.equal(holding.quantity, 10.5);
-  assert.equal(holding.averageCost, 150.25);
-
-  const buy = repo.createTransaction({
+  const firstBuy = repo.createTransaction({
     id: 't1',
     portfolioId: 'p1',
-    holdingId: 'h1',
     type: 'buy',
-    symbol: 'aapl',
+    symbol: ' aapl ',
     quantity: '2',
-    price: '151.1',
-    totalAmount: '302.2',
-    occurredAt: '2026-01-06T09:30:00Z',
+    price: '150.5',
+    occurredAt: '2026-01-01T10:00:00Z',
   });
 
-  assert.equal(buy.type, 'BUY');
-  assert.equal(buy.quantity, 2);
-  assert.equal(buy.price, 151.1);
+  assert.equal(firstBuy.type, 'BUY');
+  assert.equal(firstBuy.symbol, 'AAPL');
+  assert.equal(firstBuy.quantity, 2);
+  assert.equal(firstBuy.price, 150.5);
+  assert.equal(firstBuy.totalAmount, 301);
+  assert.ok(firstBuy.holdingId);
 
-  const txns = repo.listTransactionsByPortfolio('p1');
-  assert.equal(txns.length, 1);
-  assert.equal(txns[0].symbol, 'AAPL');
+  const secondBuy = repo.createTransaction({
+    id: 't2',
+    portfolioId: 'p1',
+    type: 'BUY',
+    symbol: 'AAPL',
+    quantity: 1,
+    price: 120,
+    totalAmount: '120',
+    occurredAt: '2026-01-02T10:00:00Z',
+  });
+
+  assert.equal(secondBuy.holdingId, firstBuy.holdingId);
+  assert.equal(secondBuy.totalAmount, 120);
 
   const holdings = repo.listHoldingsByPortfolio('p1');
   assert.equal(holdings.length, 1);
   assert.equal(holdings[0].symbol, 'AAPL');
+  assert.equal(holdings[0].quantity, 3);
+  assert.equal(holdings[0].averageCost, 140.33333333333334);
+});
+
+test('sell transactions reduce holdings and reject oversells with stable error code', () => {
+  const repo = setupRepository('sell-rules');
+  repo.createPortfolio({ id: 'p1', name: 'Main', baseCurrency: 'USD' });
+
+  repo.createTransaction({
+    id: 'buy-1',
+    portfolioId: 'p1',
+    type: 'BUY',
+    symbol: 'MSFT',
+    quantity: 4,
+    price: 100,
+    occurredAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  const sell = repo.createTransaction({
+    id: 'sell-1',
+    portfolioId: 'p1',
+    type: 'SELL',
+    symbol: 'msft',
+    quantity: '1.5',
+    price: '110',
+    occurredAt: '2026-01-02T00:00:00.000Z',
+  });
+
+  assert.equal(sell.type, 'SELL');
+  assert.equal(sell.quantity, 1.5);
+  assert.equal(sell.totalAmount, 165);
+
+  const holdingsAfterSell = repo.listHoldingsByPortfolio('p1');
+  assert.equal(holdingsAfterSell.length, 1);
+  assert.equal(holdingsAfterSell[0].quantity, 2.5);
+  assert.equal(holdingsAfterSell[0].averageCost, 100);
 
   assert.throws(
-    () => repo.createHolding({ id: 'h2', portfolioId: 'p1', symbol: 'TSLA', quantity: 'nope', averageCost: 1 }),
-    (error) => error && error.code === 'VALIDATION_ERROR'
+    () =>
+      repo.createTransaction({
+        id: 'sell-2',
+        portfolioId: 'p1',
+        type: 'SELL',
+        symbol: 'MSFT',
+        quantity: 9,
+        price: 112,
+        occurredAt: '2026-01-03T00:00:00.000Z',
+      }),
+    (error) => error && error.code === 'INSUFFICIENT_QUANTITY'
   );
+});
 
-  assert.throws(
-    () => repo.createTransaction({
-      id: 't2',
-      portfolioId: 'p1',
-      type: 'BUY',
-      symbol: 'TSLA',
-      quantity: '-1',
-      price: 1,
-      totalAmount: 1,
-      occurredAt: '2026-01-07',
-    }),
-    (error) => error && error.code === 'VALIDATION_ERROR'
+test('transaction list is newest-first for deterministic UI consumption', () => {
+  const repo = setupRepository('txn-ordering');
+  repo.createPortfolio({ id: 'p1', name: 'Main', baseCurrency: 'USD' });
+
+  repo.createTransaction({
+    id: 'older',
+    portfolioId: 'p1',
+    type: 'BUY',
+    symbol: 'NVDA',
+    quantity: 1,
+    price: 90,
+    occurredAt: '2026-01-01T00:00:00.000Z',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  repo.createTransaction({
+    id: 'newer',
+    portfolioId: 'p1',
+    type: 'BUY',
+    symbol: 'NVDA',
+    quantity: 1,
+    price: 95,
+    occurredAt: '2026-01-02T00:00:00.000Z',
+    createdAt: '2026-01-02T00:00:00.000Z',
+  });
+
+  const txns = repo.listTransactionsByPortfolio('p1');
+  assert.equal(txns.length, 2);
+  assert.deepEqual(
+    txns.map((row) => row.id),
+    ['newer', 'older']
   );
 });
 
@@ -121,10 +184,7 @@ test('repository returns FK_VIOLATION and delete cascades to holdings + transact
     id: 't1',
     portfolioId: 'p1',
     holdingId: 'h1',
-    type: 'BUY',
-    symbol: 'MSFT',
-    quantity: 4,
-    price: 100,
+    type: 'DEPOSIT',
     totalAmount: 400,
     occurredAt: '2026-01-03T00:00:00.000Z',
   });

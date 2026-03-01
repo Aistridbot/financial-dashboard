@@ -1,3 +1,4 @@
+const { randomUUID } = require('node:crypto');
 const { openDatabase } = require('../db/connection');
 
 class RepositoryError extends Error {
@@ -47,6 +48,14 @@ function createFinancialRepository(options = {}) {
     return parsed;
   }
 
+  function normalizePositiveNumber(value, fieldName) {
+    const parsed = normalizeNumber(value, fieldName);
+    if (parsed <= 0) {
+      throw new RepositoryError('VALIDATION_ERROR', `${fieldName} must be > 0`, { field: fieldName, value: parsed });
+    }
+    return parsed;
+  }
+
   function normalizeDate(value, fieldName) {
     const iso = new Date(value).toISOString();
     if (iso === 'Invalid Date') {
@@ -68,9 +77,6 @@ function createFinancialRepository(options = {}) {
     return error;
   }
 
-  /**
-   * createPortfolio({ id, name, baseCurrency, createdAt? })
-   */
   function createPortfolio(input) {
     const id = normalizeRequiredText(input.id, 'id');
     const name = normalizeRequiredText(input.name, 'name');
@@ -88,9 +94,6 @@ function createFinancialRepository(options = {}) {
     });
   }
 
-  /**
-   * listPortfolios()
-   */
   function listPortfolios() {
     return withDb((db) =>
       db
@@ -99,9 +102,6 @@ function createFinancialRepository(options = {}) {
     );
   }
 
-  /**
-   * getPortfolioById(id)
-   */
   function getPortfolioById(id) {
     const normalizedId = normalizeRequiredText(id, 'id');
     return withDb((db) => {
@@ -116,9 +116,6 @@ function createFinancialRepository(options = {}) {
     });
   }
 
-  /**
-   * updatePortfolio(id, { name?, baseCurrency? })
-   */
   function updatePortfolio(id, updates) {
     const normalizedId = normalizeRequiredText(id, 'id');
     if (!updates || typeof updates !== 'object') {
@@ -153,9 +150,6 @@ function createFinancialRepository(options = {}) {
     });
   }
 
-  /**
-   * deletePortfolio(id)
-   */
   function deletePortfolio(id) {
     const normalizedId = normalizeRequiredText(id, 'id');
     return withDb((db) => {
@@ -167,9 +161,6 @@ function createFinancialRepository(options = {}) {
     });
   }
 
-  /**
-   * createHolding({ id, portfolioId, symbol, quantity, averageCost, createdAt? })
-   */
   function createHolding(input) {
     const id = normalizeRequiredText(input.id, 'id');
     const portfolioId = normalizeRequiredText(input.portfolioId, 'portfolioId');
@@ -191,38 +182,104 @@ function createFinancialRepository(options = {}) {
     });
   }
 
-  /**
-   * listHoldingsByPortfolio(portfolioId)
-   */
   function listHoldingsByPortfolio(portfolioId) {
     const normalizedPortfolioId = normalizeRequiredText(portfolioId, 'portfolioId');
     return withDb((db) =>
       db
         .prepare(
-          'SELECT id, portfolio_id AS portfolioId, symbol, quantity, average_cost AS averageCost, created_at AS createdAt FROM holdings WHERE portfolio_id = ? ORDER BY created_at, id'
+          'SELECT id, portfolio_id AS portfolioId, symbol, quantity, average_cost AS averageCost, created_at AS createdAt FROM holdings WHERE portfolio_id = ? ORDER BY symbol, created_at, id'
         )
         .all(normalizedPortfolioId)
     );
   }
 
-  /**
-   * createTransaction({ id, portfolioId, holdingId?, type, symbol?, quantity?, price?, totalAmount, occurredAt, createdAt? })
-   */
   function createTransaction(input) {
     const id = normalizeRequiredText(input.id, 'id');
     const portfolioId = normalizeRequiredText(input.portfolioId, 'portfolioId');
-    const holdingId = input.holdingId === undefined || input.holdingId === null
-      ? null
-      : normalizeRequiredText(input.holdingId, 'holdingId');
     const type = normalizeRequiredText(input.type, 'type').toUpperCase();
-    const symbol = input.symbol === undefined || input.symbol === null ? null : normalizeSymbol(input.symbol, 'symbol');
-    const quantity = input.quantity === undefined || input.quantity === null ? null : normalizeNumber(input.quantity, 'quantity');
-    const price = input.price === undefined || input.price === null ? null : normalizeNumber(input.price, 'price');
-    const totalAmount = normalizeNumber(input.totalAmount, 'totalAmount');
     const occurredAt = normalizeDate(input.occurredAt, 'occurredAt');
     const createdAt = normalizeOptionalDate(input.createdAt, 'createdAt');
 
     return withDb((db) => {
+      if (type === 'BUY' || type === 'SELL') {
+        const symbol = normalizeSymbol(input.symbol, 'symbol');
+        const quantity = normalizePositiveNumber(input.quantity, 'quantity');
+        const price = normalizePositiveNumber(input.price, 'price');
+        const totalAmount =
+          input.totalAmount === undefined || input.totalAmount === null
+            ? Number((quantity * price).toFixed(8))
+            : normalizeNumber(input.totalAmount, 'totalAmount');
+
+        db.exec('BEGIN');
+        try {
+          const existingHolding = db
+            .prepare(
+              'SELECT id, quantity, average_cost AS averageCost FROM holdings WHERE portfolio_id = ? AND symbol = ? ORDER BY created_at, id LIMIT 1'
+            )
+            .get(portfolioId, symbol);
+
+          let holdingId;
+          if (type === 'BUY') {
+            if (existingHolding) {
+              const currentQuantity = Number(existingHolding.quantity);
+              const currentAverageCost = Number(existingHolding.averageCost);
+              const newQuantity = currentQuantity + quantity;
+              const newAverageCost = ((currentQuantity * currentAverageCost) + (quantity * price)) / newQuantity;
+
+              db.prepare('UPDATE holdings SET quantity = ?, average_cost = ? WHERE id = ?').run(
+                newQuantity,
+                newAverageCost,
+                existingHolding.id
+              );
+              holdingId = existingHolding.id;
+            } else {
+              holdingId = randomUUID();
+              db.prepare(
+                'INSERT INTO holdings (id, portfolio_id, symbol, quantity, average_cost, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+              ).run(holdingId, portfolioId, symbol, quantity, price, createdAt);
+            }
+          } else {
+            if (!existingHolding || Number(existingHolding.quantity) < quantity) {
+              throw new RepositoryError('INSUFFICIENT_QUANTITY', `sell quantity exceeds current holding for ${symbol}`, {
+                symbol,
+                availableQuantity: existingHolding ? Number(existingHolding.quantity) : 0,
+                requestedQuantity: quantity,
+              });
+            }
+
+            const remainingQuantity = Number(existingHolding.quantity) - quantity;
+            db.prepare('UPDATE holdings SET quantity = ? WHERE id = ?').run(remainingQuantity, existingHolding.id);
+            holdingId = existingHolding.id;
+          }
+
+          db.prepare(
+            `INSERT INTO transactions (
+              id, portfolio_id, holding_id, type, symbol, quantity, price, total_amount, occurred_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(id, portfolioId, holdingId, type, symbol, quantity, price, totalAmount, occurredAt, createdAt);
+
+          db.exec('COMMIT');
+
+          return { id, portfolioId, holdingId, type, symbol, quantity, price, totalAmount, occurredAt, createdAt };
+        } catch (error) {
+          db.exec('ROLLBACK');
+          if (error instanceof RepositoryError) {
+            throw error;
+          }
+          throw mapSqliteError(error, `portfolio does not exist: ${portfolioId}`);
+        }
+      }
+
+      const holdingId =
+        input.holdingId === undefined || input.holdingId === null
+          ? null
+          : normalizeRequiredText(input.holdingId, 'holdingId');
+      const symbol = input.symbol === undefined || input.symbol === null ? null : normalizeSymbol(input.symbol, 'symbol');
+      const quantity =
+        input.quantity === undefined || input.quantity === null ? null : normalizePositiveNumber(input.quantity, 'quantity');
+      const price = input.price === undefined || input.price === null ? null : normalizePositiveNumber(input.price, 'price');
+      const totalAmount = normalizeNumber(input.totalAmount, 'totalAmount');
+
       try {
         db.prepare(
           `INSERT INTO transactions (
@@ -237,9 +294,6 @@ function createFinancialRepository(options = {}) {
     });
   }
 
-  /**
-   * listTransactionsByPortfolio(portfolioId)
-   */
   function listTransactionsByPortfolio(portfolioId) {
     const normalizedPortfolioId = normalizeRequiredText(portfolioId, 'portfolioId');
     return withDb((db) =>
@@ -258,7 +312,7 @@ function createFinancialRepository(options = {}) {
             created_at AS createdAt
           FROM transactions
           WHERE portfolio_id = ?
-          ORDER BY occurred_at, id`
+          ORDER BY occurred_at DESC, created_at DESC, id DESC`
         )
         .all(normalizedPortfolioId)
     );
