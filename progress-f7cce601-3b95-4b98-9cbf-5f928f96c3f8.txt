@@ -1,0 +1,240 @@
+# Progress Log
+Run: f7cce601-3b95-4b98-9cbf-5f928f96c3f8
+Task: FULL FINANCIAL MVP: canonical repo baseline; this run is delivering API + dashboard UI stories sequentially.
+Started: 2026-03-01 17:52 CET
+
+## Codebase Patterns
+- Database persistence uses Node built-in `node:sqlite` (`DatabaseSync`) with synchronous migration/seed scripts to keep setup dependency-light.
+- Migration baseline is tracked in a `schema_migrations` table with monotonic integer versions.
+- DB location is resolved by `FINANCIAL_DB_PATH` override (for tests) and defaults to `.data/financial.db` for local runs.
+- Test isolation uses temp SQLite file paths per test case and verifies schema contracts via SQLite PRAGMA introspection.
+- Tests use Node's built-in test runner (`node --test`) and repository scripts should remain minimal/commonjs-compatible.
+- Data-access modules should normalize API-facing shape (camelCase fields) while mapping to SQL snake_case columns at query boundaries.
+- Repository-level domain errors are modeled with stable `code` values (`VALIDATION_ERROR`, `NOT_FOUND`, `FK_VIOLATION`) so handlers can return consistent HTTP responses.
+- API route modules follow dependency injection: route code takes provider instances, while provider selection is centralized in a factory driven by environment variables.
+- HTTP errors should use a single `{ error: { code, message, details? } }` JSON contract so clients can handle failures consistently across endpoints.
+- Route handlers should keep transport-level validation (allowed body fields, request shape) in route modules and rely on repository validation for domain-level constraints.
+- Position-changing writes (buy/sell transactions) should run in an explicit SQLite `BEGIN`/`COMMIT` block so holding mutations and transaction inserts stay atomic.
+- Dashboard aggregate endpoints should degrade gracefully: when quote data is missing, use deterministic fallback pricing from holdings and include warning metadata explaining fallback behavior.
+- UI testability pattern: expose stable `data-testid` hooks and deterministic loading/error copy so route-level and client-script checks remain robust without browser-only tooling.
+- Dashboard UI scripts should treat API-backed tables as explicit state machines (loading/error/empty/table) and keep formatting helpers deterministic (`YYYY-MM-DD`, fixed precision, fixed currency locale) to stabilize tests.
+- For dashboard mutations, client script should centralize fetch-side effects (refresh summary + transactions together) so write operations and read-model cards/tables stay in sync after successful submit.
+- End-to-end API/UI integration coverage uses a real ephemeral HTTP server + temp SQLite DB per test, with injected stock-provider stubs for deterministic summary assertions.
+- PR-readiness docs are regression-tested with `node:test` by asserting required commands, route docs, checklist anchors, and guarded script order directly from repository files.
+
+---
+
+## 2026-03-01 17:58 CET - US-001: Establish persistent financial schema and migration baseline
+- Added DB infrastructure under `src/db/`:
+  - `connection.js`: DB path resolution + foreign key enablement.
+  - `migrate.js`: migration framework and baseline migration (version 1).
+  - `seed.js`: deterministic fixture seed for demo portfolio data.
+- Implemented migration SQL creating `portfolios`, `holdings`, and `transactions` with explicit PK/FK/not-null/check constraints.
+- Added required lookup indexes:
+  - `idx_holdings_portfolio_id`
+  - `idx_transactions_portfolio_id`
+  - `idx_transactions_holding_id`
+- Added deterministic seed fixture (`portfolio-demo-001`, `holding-aapl-001`, and two transactions) for test usage.
+- Added npm scripts:
+  - `npm run migrate`
+  - `npm run seed`
+- Added `src/db/migrateAndSeed.test.js` to validate:
+  - migration creates tables/FKs/indexes and schema version 1
+  - seed inserts deterministic records and expected counts
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Using explicit DB path override keeps tests hermetic and avoids coupling to workspace-local DB files.
+---
+
+## 2026-03-01 18:06 CET - US-002: Add repository/data-access layer for portfolios, holdings, and transactions
+- Added `src/repositories/financialRepository.js` with dedicated repository functions for:
+  - portfolios: `createPortfolio`, `listPortfolios`, `getPortfolioById`, `updatePortfolio`, `deletePortfolio`
+  - holdings: `createHolding`, `listHoldingsByPortfolio`
+  - transactions: `createTransaction`, `listTransactionsByPortfolio`
+- Implemented repository-boundary normalization and validation:
+  - trims required text fields
+  - uppercases `symbol` and `baseCurrency`
+  - normalizes dates to ISO strings
+  - parses numeric inputs for `quantity`, `averageCost`, `price`, `totalAmount` and rejects invalid/negative values
+- Added structured repository errors via `RepositoryError` with stable `code` values:
+  - `VALIDATION_ERROR` for invalid input
+  - `NOT_FOUND` for missing portfolio in get/update/delete
+  - `FK_VIOLATION` for foreign key constraint failures in holdings/transactions inserts
+- Covered schema delete behavior (ON DELETE CASCADE): deleting a portfolio removes related holdings and transactions.
+- Added `src/repositories/financialRepository.test.js` covering CRUD, validation, FK violations, and cascade behavior.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Keeping SQL-column mapping isolated in repository methods preserves clean camelCase contracts for upper layers and simplifies handler testing.
+---
+
+## 2026-03-01 18:14 CET - US-003: Implement stock market data API endpoints with provider abstraction
+- Added stock provider abstraction under `src/stocks/`:
+  - `provider.js` factory selecting adapter via `STOCK_PROVIDER` env var.
+  - `providers/stubProvider.js` deterministic quote/history adapter used by default and in tests.
+  - `providers/liveProvider.js` optional live adapter (guarded by required env vars `STOCK_API_BASE_URL` and `STOCK_API_KEY`).
+- Added stock route module `src/stocks/routes.js` implementing:
+  - `GET /api/stocks/quote?symbol=`
+  - `GET /api/stocks/history?symbol=&range=`
+- Implemented query validation and shared error contract:
+  - symbol validation with ticker pattern guard.
+  - range validation against supported ranges (`1D`, `5D`, `1M`, `6M`, `1Y`).
+  - uniform error responses in shape `{ error: { code, message, details? } }` with 400/500 status handling.
+- Refactored `src/index.js` to expose `createApp()` with dependency-injected stock provider, keeping route code provider-agnostic.
+- Added endpoint tests in `src/stocks/stockEndpoints.test.js` covering:
+  - valid quote response contract
+  - valid history response ordering and range behavior
+  - invalid symbol/range errors using consistent JSON shape
+  - env-driven provider selection and live-provider guardrails
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Keeping provider selection in one factory and injecting into app creation allows environment-level switching without route changes and keeps endpoint tests deterministic.
+---
+
+## 2026-03-01 18:24 CET - US-004: Expose portfolio CRUD API endpoints
+- Added shared API error helpers in `src/api/errors.js` and reused them from stock routes for a single error response contract.
+- Added portfolio route module `src/portfolios/routes.js` implementing:
+  - `GET /api/portfolios` (list)
+  - `POST /api/portfolios` (create, returns 201 + resource)
+  - `GET /api/portfolios/:id` (detail)
+  - `PATCH /api/portfolios/:id` (allows only `name`, `baseCurrency`; rejects unknown fields with 400/`UNKNOWN_FIELDS`)
+  - `DELETE /api/portfolios/:id` (explicit contract: 204 No Content on success, 404 when id is missing)
+- Wired repository-backed portfolio routes into app bootstrap in `src/index.js` and enabled `express.json()` body parsing.
+- Added endpoint integration tests in `src/portfolios/portfolioEndpoints.test.js` covering create/list/detail/update/delete, unknown-field rejection, and missing-id behavior.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Transport-level validation (unknown body keys) belongs at route boundary while repository validation remains source of truth for data/domain constraints.
+---
+
+## 2026-03-01 18:33 CET - US-005: Add holdings and transactions API with derived position updates
+- Extended `src/portfolios/routes.js` with holdings and transaction endpoints:
+  - `GET /api/portfolios/:id/holdings`
+  - `GET /api/portfolios/:id/transactions`
+  - `POST /api/portfolios/:id/transactions` (BUY/SELL only with unknown-field guard)
+- Added API mapping for transaction/position errors:
+  - `INSUFFICIENT_QUANTITY` returns HTTP 400 with error details
+  - repository validation and FK errors are surfaced as 400 with stable error codes
+- Enhanced `src/repositories/financialRepository.js` transaction behavior:
+  - BUY/SELL transactions now run in one explicit DB transaction (`BEGIN`/`COMMIT`)
+  - BUY creates or updates holding quantity and weighted average cost
+  - SELL enforces available quantity and updates holding quantity
+  - normalized numeric handling for quantity/price and computed `totalAmount` when omitted
+  - deterministic transaction ordering changed to newest-first (`occurred_at DESC, created_at DESC, id DESC`)
+- Added/updated tests:
+  - `src/portfolios/portfolioHoldingsTransactions.test.js` for endpoint-level behavior (buy/sell persistence, holdings updates, oversell rejection, newest-first list)
+  - `src/repositories/financialRepository.test.js` for repository atomic position updates and ordering guarantees
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Keeping BUY/SELL business invariants in repository logic allows route handlers to stay thin while preserving atomicity and deterministic read models for UI consumers.
+---
+
+## 2026-03-01 18:44 CET - US-006: Create dashboard summary endpoint aggregating portfolio metrics
+- Added dashboard route module `src/dashboard/routes.js` with `GET /api/dashboard/summary?portfolioId=`.
+- Implemented summary aggregation over repository holdings + quote provider:
+  - `totalValue`: sum of current market value per position
+  - `investedValue`: sum of `quantity * averageCost`
+  - `dayChange`: sum of `quantity * (price - previousClose)`
+  - `totalGainLoss`: sum of `quantity * (price - averageCost)`
+  - `positionsCount`: number of holdings/positions in portfolio
+- Added resilient fallback behavior for quote failures/unavailable data:
+  - uses holding `averageCost` as fallback price (`USE_AVERAGE_COST` strategy)
+  - keeps calculations stable and deterministic
+  - includes `warnings` metadata array with `QUOTE_UNAVAILABLE` entries
+- Added validation and error behavior:
+  - `400 INVALID_QUERY` when `portfolioId` query is missing/invalid
+  - `404 NOT_FOUND` when `portfolioId` does not exist
+- Wired dashboard route into `src/index.js` alongside existing stocks/portfolio routes.
+- Added endpoint integration tests in `src/dashboard/summaryEndpoint.test.js` covering deterministic aggregation, fallback warning contract, and 400/404 paths.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Dashboard endpoints should verify portfolio existence before aggregate reads so empty-holdings and unknown-portfolio states are distinguishable at HTTP contract level.
+---
+
+## 2026-03-01 18:53 CET - US-007: Build dashboard page with summary cards bound to API
+- Added dashboard UI routes in `src/dashboard/ui.js`:
+  - `GET /dashboard` serves semantic dashboard markup with loading/error regions and four summary cards.
+  - `GET /dashboard.js` serves deterministic client logic that fetches `/api/dashboard/summary` and hydrates the cards.
+- Implemented reusable formatting helpers:
+  - `formatCurrency(value, currency)` for stable currency output.
+  - `formatPercent(value)` for signed percentage output.
+  - `toSummaryViewModel(summary)` to map raw summary payloads into card display values.
+- Ensured deterministic UI states and selectors:
+  - loading state: `data-testid="dashboard-loading"` + exact text `Loading dashboard summary...`
+  - error state: `data-testid="dashboard-error"` + deterministic failure copy
+  - card selectors for value fields (`summary-value-total-value`, `summary-value-invested`, `summary-value-day-change`, `summary-value-gain-loss`, and percent variants)
+- Wired UI route registration into app bootstrap in `src/index.js` without changing existing API endpoint contracts.
+- Added tests in `src/dashboard/ui.test.js` covering:
+  - formatting helper output contracts
+  - summary view model mapping
+  - `/dashboard` markup semantics, headings, and deterministic test ids
+  - `/dashboard.js` deterministic state messaging and selector targeting
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Keeping UI state copy and test selectors centralized in one route/module enables stable black-box UI testing even with lightweight server-rendered HTML + vanilla client script.
+---
+
+## 2026-03-01 19:02 CET - US-008: Build transactions table UI with portfolio selector and refresh flow
+- Extended dashboard UI markup in `src/dashboard/ui.js` with a transactions section that includes:
+  - portfolio selector (loaded from `/api/portfolios`)
+  - deterministic loading/error/empty-state elements
+  - transactions table with required columns: date, symbol, side, quantity, price, total
+- Implemented client-side refresh flow in `/dashboard.js`:
+  - fetches portfolios and initializes selector
+  - fetches `/api/portfolios/:id/transactions` for selected portfolio
+  - refetches transactions when selector value changes
+  - preserves newest-first API ordering and renders rows in returned order
+- Added deterministic formatting helpers for transaction display:
+  - `formatTransactionDate` => `YYYY-MM-DD`
+  - `formatQuantity` => fixed 4 decimal places
+  - existing `formatCurrency` reused for price/total
+- Added explicit empty-state message rendering path for portfolios with zero transactions (no blank table).
+- Expanded UI tests in `src/dashboard/ui.test.js`:
+  - helper tests for date/quantity formatting determinism
+  - dashboard HTML assertions for selector, table, and required headers
+  - dashboard client-script assertions for portfolios fetch, transactions fetch, selector change wiring, and formatting functions
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** For lightweight server-rendered pages, encode table state transitions in deterministic script copy/selectors so endpoint, script, and markup contracts stay testable without full browser automation.
+---
+
+## 2026-03-01 19:20 CET - US-009: Add transaction create flow in UI and sync cards/table
+- Extended dashboard page markup in `src/dashboard/ui.js` with a transaction creation form containing required fields: portfolio selector, symbol, side, quantity, price, and date.
+- Implemented client-side transaction create flow in `/dashboard.js`:
+  - validates form values before request dispatch (positive numeric quantity/price, valid date, required portfolio/symbol/side)
+  - posts to `POST /api/portfolios/:id/transactions`
+  - maps server validation responses into field-level UI errors and a deterministic form-level message
+  - on success, resets form and re-fetches both dashboard summary cards and transactions table so values and rows update immediately.
+- Refactored client summary loading into reusable `loadSummary(portfolioId)` and synchronized selector state between the table filter and create form.
+- Added reusable validation helper `validateTransactionFormData` for deterministic unit-level assertions of numeric/date guards.
+- Updated dashboard UI tests (`src/dashboard/ui.test.js`) to cover:
+  - transaction form validation behavior
+  - dashboard markup for transaction create controls and field error targets
+  - client-script create-flow hooks (POST call, validation copy, success refresh of cards/table).
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Mutation flows on lightweight server-rendered pages remain testable by exposing stable `data-testid` hooks for each field error and by keeping submit/refresh orchestration in named script functions.
+---
+
+## 2026-03-01 19:30 CET - US-010: Implement end-to-end integration test suite for MVP flows
+- Added `src/integration/mvpFlow.integration.test.js` to validate end-to-end MVP behavior with app booted against temp test DBs and injected stock-provider stubs.
+- Implemented happy-path integration coverage for full lifecycle:
+  - create portfolio
+  - post BUY/SELL transactions
+  - read holdings and transactions
+  - verify dashboard summary metrics match posted transaction state and deterministic quote inputs
+  - verify dashboard HTML/JS assets expose summary cards + transactions table flow
+- Implemented guarded-failure integration coverage for:
+  - invalid transaction payloads (e.g., non-positive quantity, invalid type)
+  - missing portfolio handling across portfolio detail and dashboard summary endpoints
+  - invalid/unknown stock symbol query handling via stock quote endpoint validation
+- Confirmed repository/test command wiring includes integration suite automatically via `npm test` (`node --test`) and exits non-zero on assertion failures.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Integration tests in this codebase should stay black-box at HTTP level (not module internals) to validate API contracts and UI wiring together.
+---
+
+## 2026-03-01 19:36 CET - US-011: Prepare PR-ready guardrails, docs, and verification checklist
+- Replaced `README.md` with complete MVP runbook and reviewer docs:
+  - install/setup commands
+  - migrate/seed/run/test/typecheck commands
+  - guarded command sequence (`npm run verify:guarded`)
+  - implemented API endpoints and dashboard UI behavior reference
+- Added `docs/PR_CHECKLIST.md` with mechanically verifiable PR checks for environment setup, API routes, UI flow, and quality gates.
+- Added `src/docs/prReadiness.test.js` to enforce documentation guardrails:
+  - README command coverage checks
+  - API/UI documentation presence checks
+  - PR checklist artifact checks
+  - package script order checks for guarded verification sequence
+- Updated `package.json` scripts with `verify:guarded` (`build -> test -> typecheck`) to support local and CI-ready gated execution.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`, `npm run verify:guarded`.
+- **Learnings:** Documentation can be made regression-safe by testing required command strings and checklist anchors directly in node:test, preventing accidental reviewer-workflow drift.
+---

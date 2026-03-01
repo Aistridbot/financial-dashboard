@@ -1,0 +1,43 @@
+# Progress Log
+Run: 6b64edff-c960-427e-942e-7c504fd87bdf
+Task: RUN #17 AUTO-REPAIR: canonical repo, max 3 stories, planner missing keys auto-repaired (repo/branch/stories_json), full pipeline to PR.
+Started: 2026-03-01 16:18 CET
+
+## Codebase Patterns
+- Planner-style agent output is parsed as case-insensitive `KEY: value` lines, then normalized in a second pass.
+- Normalization returns a machine-readable result shape: `{ ok: true, value }` for success and `{ ok: false, error }` for failures.
+- Tests use Node's built-in test runner (`node:test`) and run via `npm test` (`node --test`).
+- Pipeline orchestration should reject raw planner text and only accept normalized planner payloads as input.
+- Story scheduling is deterministic by mapping `stories_json` in-order and annotating each record with a numeric `order` index.
+- End-to-end run tests use text fixtures under `src/fixtures/` and assert stage progression with explicit `stage` + `artifacts` fields.
+
+---
+
+## 2026-03-01 16:18 CET - US-001: Add planner-output normalization for canonical repo/branch/stories keys
+- Implemented `src/plannerOutput.js` with a parsing layer (`parseKeyValueOutput`) and normalization layer (`normalizePlannerOutput`).
+- Enforced canonical repo path `/Users/aistridbot/.openclaw/workspace/financial-dashboard` whenever repo is missing or non-canonical.
+- Added branch fallback handling using planner output first, then default/workflow branch.
+- Added machine-readable failure responses for missing/invalid/non-array `stories_json`.
+- Added tests in `src/plannerOutput.test.js` for normalization success and failure paths.
+- Updated `package.json` test script to execute the test suite with `node --test`.
+- **Learnings:** This repository currently uses lightweight JavaScript + Node built-ins, so reusable utilities and tests should stay dependency-light.
+---
+
+## 2026-03-01 16:29 CET - US-002: Wire normalized planner payload into story creation and execution pipeline
+- Implemented `src/runPipeline.js` with `buildExecutionPlan()` to consume normalized planner payload as the single source of truth (`repo`, `branch`, `stories_json`).
+- Added story-record creation (`createStoryRecords`) that preserves declared planner order and annotates records with `order` + pending status for downstream execution.
+- Added max-story guardrail (default/configurable, set to 3 in tests) that aborts pre-execution with a clear error when planner output exceeds configured limit.
+- Added orchestration tests in `src/runPipeline.test.js` covering normalized payload consumption, repaired-key success path with order preservation, max-story abort behavior, and rejection of non-normalized/raw input.
+- Ran full checks: `npm test`, `npm run typecheck`, `npm run build`.
+- **Learnings:** Keep orchestration boundaries explicit—normalization and execution planning are separate modules, and planner raw text must not leak past normalization.
+---
+
+## 2026-03-01 16:37 CET - US-003: Add end-to-end run coverage from planner auto-repair through PR handoff
+- Added `src/autoRepairPipeline.js` to execute integration-stage flow in test mode: normalize -> execution plan -> story stub execution -> verification -> PR preparation.
+- Added RUN #17 fixture `src/fixtures/run17-planner-missing-keys.txt` containing planner output with missing `repo`, `branch`, and `stories_json`.
+- Extended `normalizePlannerOutput()` to support `repairedStoriesJson` fallback so omitted `stories_json` can be auto-repaired in integration flows while preserving failure behavior when no repair data exists.
+- Added `src/autoRepairPipeline.test.js` integration test validating canonical repo/branch metadata, ordered stories derived from repaired stories JSON, and successful PR-ready handoff status.
+- Expanded `src/plannerOutput.test.js` with explicit coverage for repaired stories fallback behavior.
+- Ran full checks: `npm test`, `npm run typecheck`, `npm run build`.
+- **Learnings:** For end-to-end reliability, repair inputs should be injected only at normalization boundaries; downstream orchestration can stay strict and deterministic.
+---
