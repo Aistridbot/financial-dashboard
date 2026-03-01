@@ -1,0 +1,21 @@
+# Progress Log
+Run: 6b64edff-c960-427e-942e-7c504fd87bdf
+Task: RUN #17 AUTO-REPAIR: canonical repo, max 3 stories, planner missing keys auto-repaired (repo/branch/stories_json), full pipeline to PR.
+Started: 2026-03-01 16:18 CET
+
+## Codebase Patterns
+- Planner-style agent output is parsed as case-insensitive `KEY: value` lines, then normalized in a second pass.
+- Normalization returns a machine-readable result shape: `{ ok: true, value }` for success and `{ ok: false, error }` for failures.
+- Tests use Node's built-in test runner (`node:test`) and run via `npm test` (`node --test`).
+
+---
+
+## 2026-03-01 16:18 CET - US-001: Add planner-output normalization for canonical repo/branch/stories keys
+- Implemented `src/plannerOutput.js` with a parsing layer (`parseKeyValueOutput`) and normalization layer (`normalizePlannerOutput`).
+- Enforced canonical repo path `/Users/aistridbot/.openclaw/workspace/financial-dashboard` whenever repo is missing or non-canonical.
+- Added branch fallback handling using planner output first, then default/workflow branch.
+- Added machine-readable failure responses for missing/invalid/non-array `stories_json`.
+- Added tests in `src/plannerOutput.test.js` for normalization success and failure paths.
+- Updated `package.json` test script to execute the test suite with `node --test`.
+- **Learnings:** This repository currently uses lightweight JavaScript + Node built-ins, so reusable utilities and tests should stay dependency-light.
+---

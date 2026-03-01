@@ -7,7 +7,7 @@
     "dev": "node src/index.js",
     "build": "echo build-ok",
     "start": "node src/index.js",
-    "test": "echo test-ok",
+    "test": "node --test", 
     "typecheck": "echo typecheck-ok"
   },
   "dependencies": {
