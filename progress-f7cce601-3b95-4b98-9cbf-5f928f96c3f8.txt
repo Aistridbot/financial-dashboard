@@ -19,6 +19,7 @@ Started: 2026-03-01 17:52 CET
 - UI testability pattern: expose stable `data-testid` hooks and deterministic loading/error copy so route-level and client-script checks remain robust without browser-only tooling.
 - Dashboard UI scripts should treat API-backed tables as explicit state machines (loading/error/empty/table) and keep formatting helpers deterministic (`YYYY-MM-DD`, fixed precision, fixed currency locale) to stabilize tests.
 - For dashboard mutations, client script should centralize fetch-side effects (refresh summary + transactions together) so write operations and read-model cards/tables stay in sync after successful submit.
+- End-to-end API/UI integration coverage uses a real ephemeral HTTP server + temp SQLite DB per test, with injected stock-provider stubs for deterministic summary assertions.
 
 ---
 
@@ -201,4 +202,21 @@ Started: 2026-03-01 17:52 CET
   - client-script create-flow hooks (POST call, validation copy, success refresh of cards/table).
 - Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
 - **Learnings:** Mutation flows on lightweight server-rendered pages remain testable by exposing stable `data-testid` hooks for each field error and by keeping submit/refresh orchestration in named script functions.
+---
+
+## 2026-03-01 19:30 CET - US-010: Implement end-to-end integration test suite for MVP flows
+- Added `src/integration/mvpFlow.integration.test.js` to validate end-to-end MVP behavior with app booted against temp test DBs and injected stock-provider stubs.
+- Implemented happy-path integration coverage for full lifecycle:
+  - create portfolio
+  - post BUY/SELL transactions
+  - read holdings and transactions
+  - verify dashboard summary metrics match posted transaction state and deterministic quote inputs
+  - verify dashboard HTML/JS assets expose summary cards + transactions table flow
+- Implemented guarded-failure integration coverage for:
+  - invalid transaction payloads (e.g., non-positive quantity, invalid type)
+  - missing portfolio handling across portfolio detail and dashboard summary endpoints
+  - invalid/unknown stock symbol query handling via stock quote endpoint validation
+- Confirmed repository/test command wiring includes integration suite automatically via `npm test` (`node --test`) and exits non-zero on assertion failures.
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Integration tests in this codebase should stay black-box at HTTP level (not module internals) to validate API contracts and UI wiring together.
 ---
