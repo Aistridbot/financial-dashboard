@@ -11,6 +11,8 @@ Started: 2026-03-01 17:52 CET
 - Tests use Node's built-in test runner (`node --test`) and repository scripts should remain minimal/commonjs-compatible.
 - Data-access modules should normalize API-facing shape (camelCase fields) while mapping to SQL snake_case columns at query boundaries.
 - Repository-level domain errors are modeled with stable `code` values (`VALIDATION_ERROR`, `NOT_FOUND`, `FK_VIOLATION`) so handlers can return consistent HTTP responses.
+- API route modules follow dependency injection: route code takes provider instances, while provider selection is centralized in a factory driven by environment variables.
+- HTTP errors should use a single `{ error: { code, message, details? } }` JSON contract so clients can handle failures consistently across endpoints.
 
 ---
 
@@ -53,4 +55,26 @@ Started: 2026-03-01 17:52 CET
 - Added `src/repositories/financialRepository.test.js` covering CRUD, validation, FK violations, and cascade behavior.
 - Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
 - **Learnings:** Keeping SQL-column mapping isolated in repository methods preserves clean camelCase contracts for upper layers and simplifies handler testing.
+---
+
+## 2026-03-01 18:14 CET - US-003: Implement stock market data API endpoints with provider abstraction
+- Added stock provider abstraction under `src/stocks/`:
+  - `provider.js` factory selecting adapter via `STOCK_PROVIDER` env var.
+  - `providers/stubProvider.js` deterministic quote/history adapter used by default and in tests.
+  - `providers/liveProvider.js` optional live adapter (guarded by required env vars `STOCK_API_BASE_URL` and `STOCK_API_KEY`).
+- Added stock route module `src/stocks/routes.js` implementing:
+  - `GET /api/stocks/quote?symbol=`
+  - `GET /api/stocks/history?symbol=&range=`
+- Implemented query validation and shared error contract:
+  - symbol validation with ticker pattern guard.
+  - range validation against supported ranges (`1D`, `5D`, `1M`, `6M`, `1Y`).
+  - uniform error responses in shape `{ error: { code, message, details? } }` with 400/500 status handling.
+- Refactored `src/index.js` to expose `createApp()` with dependency-injected stock provider, keeping route code provider-agnostic.
+- Added endpoint tests in `src/stocks/stockEndpoints.test.js` covering:
+  - valid quote response contract
+  - valid history response ordering and range behavior
+  - invalid symbol/range errors using consistent JSON shape
+  - env-driven provider selection and live-provider guardrails
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Keeping provider selection in one factory and injecting into app creation allows environment-level switching without route changes and keeps endpoint tests deterministic.
 ---
