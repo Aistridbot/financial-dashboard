@@ -18,6 +18,7 @@ Started: 2026-03-01 17:52 CET
 - Dashboard aggregate endpoints should degrade gracefully: when quote data is missing, use deterministic fallback pricing from holdings and include warning metadata explaining fallback behavior.
 - UI testability pattern: expose stable `data-testid` hooks and deterministic loading/error copy so route-level and client-script checks remain robust without browser-only tooling.
 - Dashboard UI scripts should treat API-backed tables as explicit state machines (loading/error/empty/table) and keep formatting helpers deterministic (`YYYY-MM-DD`, fixed precision, fixed currency locale) to stabilize tests.
+- For dashboard mutations, client script should centralize fetch-side effects (refresh summary + transactions together) so write operations and read-model cards/tables stay in sync after successful submit.
 
 ---
 
@@ -183,4 +184,21 @@ Started: 2026-03-01 17:52 CET
   - dashboard client-script assertions for portfolios fetch, transactions fetch, selector change wiring, and formatting functions
 - Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
 - **Learnings:** For lightweight server-rendered pages, encode table state transitions in deterministic script copy/selectors so endpoint, script, and markup contracts stay testable without full browser automation.
+---
+
+## 2026-03-01 19:20 CET - US-009: Add transaction create flow in UI and sync cards/table
+- Extended dashboard page markup in `src/dashboard/ui.js` with a transaction creation form containing required fields: portfolio selector, symbol, side, quantity, price, and date.
+- Implemented client-side transaction create flow in `/dashboard.js`:
+  - validates form values before request dispatch (positive numeric quantity/price, valid date, required portfolio/symbol/side)
+  - posts to `POST /api/portfolios/:id/transactions`
+  - maps server validation responses into field-level UI errors and a deterministic form-level message
+  - on success, resets form and re-fetches both dashboard summary cards and transactions table so values and rows update immediately.
+- Refactored client summary loading into reusable `loadSummary(portfolioId)` and synchronized selector state between the table filter and create form.
+- Added reusable validation helper `validateTransactionFormData` for deterministic unit-level assertions of numeric/date guards.
+- Updated dashboard UI tests (`src/dashboard/ui.test.js`) to cover:
+  - transaction form validation behavior
+  - dashboard markup for transaction create controls and field error targets
+  - client-script create-flow hooks (POST call, validation copy, success refresh of cards/table).
+- Ran validation commands successfully: `npm run typecheck`, `npm run build`, `npm test`.
+- **Learnings:** Mutation flows on lightweight server-rendered pages remain testable by exposing stable `data-testid` hooks for each field error and by keeping submit/refresh orchestration in named script functions.
 ---

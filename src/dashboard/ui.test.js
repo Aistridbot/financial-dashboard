@@ -9,6 +9,7 @@ const {
   formatQuantity,
   formatTransactionDate,
   toSummaryViewModel,
+  validateTransactionFormData,
 } = require('./ui');
 
 async function withServer(app, fn) {
@@ -57,7 +58,38 @@ test('summary view model exposes formatted card values', () => {
   });
 });
 
-test('GET /dashboard renders summary cards and transactions table scaffolding', async () => {
+test('transaction form validation blocks invalid numeric and date fields', () => {
+  const invalid = validateTransactionFormData({
+    portfolioId: 'portfolio-demo-001',
+    symbol: 'aapl',
+    type: 'BUY',
+    quantity: 0,
+    price: 'abc',
+    occurredAt: 'not-a-date',
+  });
+
+  assert.equal(invalid.isValid, false);
+  assert.equal(invalid.errors.quantity, 'Quantity must be a positive number.');
+  assert.equal(invalid.errors.price, 'Price must be a positive number.');
+  assert.equal(invalid.errors.occurredAt, 'Date must be valid.');
+
+  const valid = validateTransactionFormData({
+    portfolioId: 'portfolio-demo-001',
+    symbol: 'msft',
+    type: 'sell',
+    quantity: '2.5',
+    price: '301.1',
+    occurredAt: '2026-03-01',
+  });
+
+  assert.equal(valid.isValid, true);
+  assert.equal(valid.value.symbol, 'MSFT');
+  assert.equal(valid.value.type, 'SELL');
+  assert.equal(valid.value.quantity, 2.5);
+  assert.equal(valid.value.price, 301.1);
+});
+
+test('GET /dashboard renders summary cards, create form, and transactions table scaffolding', async () => {
   const app = createApp({ env: { STOCK_PROVIDER: 'stub' } });
 
   await withServer(app, async (baseUrl) => {
@@ -81,6 +113,15 @@ test('GET /dashboard renders summary cards and transactions table scaffolding', 
     assert.match(html, /<h2>Day change<\/h2>/);
     assert.match(html, /<h2>Gain\/loss<\/h2>/);
 
+    assert.match(html, /data-testid="transaction-form"/);
+    assert.match(html, /data-testid="transaction-input-portfolio"/);
+    assert.match(html, /data-testid="transaction-input-symbol"/);
+    assert.match(html, /data-testid="transaction-input-side"/);
+    assert.match(html, /data-testid="transaction-input-quantity"/);
+    assert.match(html, /data-testid="transaction-input-price"/);
+    assert.match(html, /data-testid="transaction-input-date"/);
+    assert.match(html, /data-testid="transaction-form-message"/);
+
     assert.match(html, /data-testid="portfolio-selector"/);
     assert.match(html, /data-testid="transactions-table"/);
     assert.match(html, /<th>Date<\/th>/);
@@ -93,7 +134,7 @@ test('GET /dashboard renders summary cards and transactions table scaffolding', 
   });
 });
 
-test('GET /dashboard.js exposes deterministic transaction loading and formatting flow', async () => {
+test('GET /dashboard.js exposes transaction create flow with validation and refresh hooks', async () => {
   const app = createApp({ env: { STOCK_PROVIDER: 'stub' } });
 
   await withServer(app, async (baseUrl) => {
@@ -104,10 +145,15 @@ test('GET /dashboard.js exposes deterministic transaction loading and formatting
     assert.equal(response.headers.get('content-type').includes('application/javascript'), true);
     assert.match(source, /Missing portfolioId query parameter/);
     assert.match(source, /Unable to load dashboard summary\. Please retry\./);
+    assert.match(source, /validateTransactionPayload/);
+    assert.match(source, /Quantity must be a positive number\./);
+    assert.match(source, /Price must be a positive number\./);
+    assert.match(source, /Date must be valid\./);
     assert.match(source, /fetch\('\/api\/portfolios'\)/);
-    assert.match(source, /fetch\('\/api\/portfolios\/' \+ encodeURIComponent\(selectedPortfolioId\) \+ '\/transactions'\)/);
-    assert.match(source, /portfolioSelector\.addEventListener\('change'/);
-    assert.match(source, /formatTransactionDate/);
-    assert.match(source, /formatQuantity/);
+    assert.match(source, /fetch\('\/api\/portfolios\/' \+ encodeURIComponent\(validation\.value\.portfolioId\) \+ '\/transactions'/);
+    assert.match(source, /method: 'POST'/);
+    assert.match(source, /loadSummary\(validation\.value\.portfolioId\)/);
+    assert.match(source, /loadTransactions\(validation\.value\.portfolioId, getSelectedPortfolioCurrency\(\)\)/);
+    assert.match(source, /Transaction created successfully\./);
   });
 });
