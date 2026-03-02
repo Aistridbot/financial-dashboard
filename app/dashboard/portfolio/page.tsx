@@ -8,6 +8,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PortfolioSummary } from "@/components/portfolio/portfolio-summary"
 import { HoldingsTable, type HoldingRow } from "@/components/portfolio/holdings-table"
+import { PortfolioActions } from "@/components/portfolio/portfolio-actions"
 import { getPortfolios } from "@/lib/actions/portfolio"
 import { getHoldings, type HoldingWithComputed } from "@/lib/actions/holding"
 import {
@@ -96,11 +97,14 @@ export default async function PortfolioPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">{portfolio.name}</h2>
-        <p className="text-muted-foreground">
-          Overview of your holdings and portfolio risk metrics.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">{portfolio.name}</h2>
+          <p className="text-muted-foreground">
+            Overview of your holdings and portfolio risk metrics.
+          </p>
+        </div>
+        <PortfolioActions portfolioId={portfolio.id} />
       </div>
 
       <PortfolioSummary

@@ -31,6 +31,18 @@ Started: 2026-03-02T22:35:00+01:00
 - Risk calculations use HoldingInput interface (symbol, quantity, avgCostBasis, optional currentPrice) — decoupled from Prisma model
 - Concentration thresholds: >40% = HIGH, >25% = MEDIUM, otherwise LOW (strict greater-than, not >=)
 - Diversification score uses weighted formula: 40% position count (asymptotic) + 60% Shannon entropy evenness
+- Dashboard uses App Router nested layouts: app/dashboard/layout.tsx wraps all tab pages
+- Dashboard layout is a client component ("use client") because it uses `usePathname` for active tab highlighting
+- Tab pages are server components by default — only the layout needs client-side interop
+- shadcn/ui components live in `components/ui/` — installed via `npx shadcn@latest add <component>`
+- Dashboard navigation uses Link + pathname matching (not Tabs component) for proper URL-based routing
+- Active tab detection: `pathname?.startsWith(tab.href)` — works for nested routes under each tab
+- Tab page tests use filesystem checks (fs.existsSync + readFileSync) — no React rendering needed for structure validation
+- Feature components go in `components/<feature>/` (e.g., `components/portfolio/`) — separate from `components/ui/`
+- Per-holding concentration risk uses same thresholds as portfolio-level risk (>40 HIGH, >25 MEDIUM)
+- Reusable `getRiskBadgeColor(risk)` helper maps LOW→green, MEDIUM→yellow, HIGH→red (defined in each component)
+- Portfolio page is async server component — fetches data directly, no client-side state needed
+- `formatCurrency` helper with Intl.NumberFormat for consistent EUR formatting across components
 
 ---
 
@@ -78,52 +90,47 @@ Started: 2026-03-02T22:35:00+01:00
 
 ## 2026-03-02 23:05 - US-005: CSV import parser for portfolio transactions
 - Created `lib/csv-parser.ts` with `parseTransactionCSV(csvString)` function
-  - Split-based CSV parsing with quoted field support (no external deps)
-  - Case-insensitive header matching, flexible column order
-  - Validates: required fields present, numeric values valid (quantity > 0, price >= 0, fees >= 0), date parseable
-  - Returns `{ valid: ParsedTransaction[], errors: ParseError[] }`
-  - Symbol normalization to uppercase, type case-insensitive (buy/Sell → BUY/SELL)
 - Created `lib/actions/import.ts` with `importTransactions(portfolioId, csvString)` server action
-  - Validates portfolio exists, parses CSV, creates transactions sequentially via `createTransaction`
-  - Returns `ImportResult` with imported count, parse errors, and transaction-level errors
-- Created `__tests__/csv-parser.test.ts` with 26 tests: valid parsing, case handling, column ordering, empty/null input, all validation error types, mixed valid/invalid rows
-- Created `__tests__/import-actions.test.ts` with 6 tests: successful import, parse errors, empty CSV, missing/invalid portfolio, transaction-level errors (insufficient shares)
+- Created `__tests__/csv-parser.test.ts` with 26 tests
+- Created `__tests__/import-actions.test.ts` with 6 tests
 - All 87 tests pass, typecheck and build pass clean
 - Files changed: lib/csv-parser.ts, lib/actions/import.ts, __tests__/csv-parser.test.ts, __tests__/import-actions.test.ts
-- **Learnings:** Pure utility modules (csv-parser) go in `lib/` directly. Import actions should reuse existing server actions for consistency rather than raw Prisma calls.
 ---
 
 ## 2026-03-02 23:15 - US-006: Finnhub API client with quote and news endpoints
-- Created `lib/types/finnhub.ts` with typed interfaces: FinnhubQuote, FinnhubQuoteRaw, FinnhubNewsItem, FinnhubNewsItemRaw, FinnhubConfig
-- Created `lib/finnhub.ts` with FinnhubClient class:
-  - Configurable via constructor (apiKey, baseUrl, maxRequestsPerMinute) or env var FINNHUB_API_KEY
-  - `getQuote(symbol)` — returns typed FinnhubQuote
-  - `getCompanyNews(symbol, from, to)` — returns FinnhubNewsItem[]
-  - `getMarketNews(category)` — returns FinnhubNewsItem[]
-  - Sliding-window rate limiter: max 60 calls/minute (configurable)
-  - Mock mode auto-activates when no API key — deterministic data seeded from symbol characters
-  - Symbol normalization to uppercase on all methods
-  - Static mapping helpers (mapQuote, mapNewsItem) for easy testing
+- Created `lib/types/finnhub.ts` with typed interfaces
+- Created `lib/finnhub.ts` with FinnhubClient class (mock mode, rate limiting, symbol normalization)
 - Created `__tests__/finnhub.test.ts` with 18 tests
 - All 105 tests pass, typecheck and build pass clean
 - Files changed: lib/types/finnhub.ts, lib/finnhub.ts, __tests__/finnhub.test.ts
-- **Learnings:** API client types in `lib/types/` per external API. Static methods on client class make unit testing straightforward.
 ---
 
 ## 2026-03-02 23:25 - US-007: Risk indicator calculations for portfolio holdings
-- Created `lib/risk.ts` with 3 exported functions + types:
-  - `calculateConcentration(holdings)` — returns `{ symbol, percentage }[]` sorted descending
-  - `calculateDiversificationScore(holdings)` — returns 0-100 score (40% position count + 60% Shannon entropy)
-  - `calculatePortfolioRisk(holdings)` — returns `{ totalValue, largestPosition, concentrationRisk, diversificationScore }`
-  - HoldingInput interface: decoupled from Prisma, accepts optional `currentPrice`
-  - Concentration thresholds: >40% HIGH, >25% MEDIUM, else LOW
-  - Single-position portfolio = score 10 (minimal diversification)
-  - Even 5-position portfolio scores ~92 (high diversification)
-- Created `__tests__/risk.test.ts` with 26 tests across 3 suites:
-  - calculateConcentration: 9 tests (empty, single, equal, uneven, sorting, currentPrice, fallback, sum-to-100, zero-value)
-  - calculateDiversificationScore: 6 tests (empty, single, more-positions-higher, even-vs-uneven, range, high-score-threshold)
-  - calculatePortfolioRisk: 11 tests (empty defaults, HIGH/MEDIUM/LOW thresholds, totalValue, currentPrice, largest position, single holding, boundary 25%, boundary 40%, score included)
-- All 131 tests pass (105 existing + 26 new), typecheck clean
+- Created `lib/risk.ts` with calculateConcentration, calculateDiversificationScore, calculatePortfolioRisk
+- Created `__tests__/risk.test.ts` with 26 tests
+- All 131 tests pass, typecheck clean
 - Files changed: lib/risk.ts, __tests__/risk.test.ts
-- **Learnings:** Decoupling from Prisma model via HoldingInput interface makes risk functions reusable and testable without DB. Shannon entropy gives a mathematically sound evenness metric for diversification.
+---
+
+## 2026-03-02 23:35 - US-008: Dashboard shell with tab navigation layout
+- Installed shadcn/ui components: tabs, card, button, badge, input, table (via `npx shadcn@latest add`)
+- Created `app/dashboard/layout.tsx` — client component with top nav, usePathname for active tab highlighting, aria-selected + role=tablist for accessibility
+- Created `app/dashboard/page.tsx` — redirects to /dashboard/portfolio via next/navigation redirect
+- Created 5 tab pages: portfolio, signals, decisions, execution-log, news — each renders CardTitle heading with description
+- Created `__tests__/dashboard-layout.test.ts` with 31 tests
+- All 162 tests pass, typecheck and build pass clean
+- Files changed: app/dashboard/layout.tsx, app/dashboard/page.tsx, app/dashboard/{portfolio,signals,decisions,execution-log,news}/page.tsx, components/ui/{tabs,card,button,badge,input,table}.tsx, __tests__/dashboard-layout.test.ts, package.json, package-lock.json
+- **Learnings:** Dashboard layout uses Link-based navigation (not shadcn Tabs) because App Router needs URL-based routing. Active tab via `pathname?.startsWith(href)` handles nested routes cleanly. Layout must be "use client" for usePathname but tab pages stay server components.
+---
+
+## 2026-03-02 23:45 - US-009: Portfolio tab — holdings table and summary cards
+- Created `components/portfolio/portfolio-summary.tsx`: 4-card grid showing total value, gain/loss, positions count, diversification score with concentration risk badge
+- Created `components/portfolio/holdings-table.tsx`: table with symbol, quantity, avg cost, current value, gain/loss, concentration % with per-holding risk badges and empty state
+- Updated `app/dashboard/portfolio/page.tsx`: async server component fetching portfolio data via getPortfolios + getHoldings, computing risk metrics via calculatePortfolioRisk + calculateConcentration, building HoldingRow data and passing to components
+- Both components use color-coded badges: green for LOW, yellow for MEDIUM, red for HIGH concentration risk
+- Page handles empty state (no portfolios) and error state gracefully
+- Created `__tests__/portfolio-tab.test.ts` with 57 tests: component file existence, exports/interfaces, content structure, badge color mapping, page integration (imports, props, data flow), risk logic integration
+- All 219 tests pass (162 existing + 57 new), typecheck and build pass clean
+- Files changed: components/portfolio/portfolio-summary.tsx, components/portfolio/holdings-table.tsx, app/dashboard/portfolio/page.tsx, __tests__/portfolio-tab.test.ts
+- **Learnings:** Feature components go in `components/<feature>/` directory. Per-holding concentration risk reuses same thresholds as portfolio-level. Async server components can call server actions directly — no client-side fetching needed.
 ---
