@@ -2,18 +2,36 @@
   "name": "financial-dashboard",
   "version": "0.1.0",
   "private": true,
-  "type": "commonjs",
   "scripts": {
-    "dev": "node src/index.js",
-    "build": "echo build-ok",
-    "start": "node src/index.js",
-    "migrate": "node src/db/migrate.js",
-    "seed": "node src/db/seed.js",
-    "test": "node --test",
-    "typecheck": "echo typecheck-ok",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test __tests__/**/*.test.ts",
     "verify:guarded": "npm run build && npm test && npm run typecheck"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "@radix-ui/react-slot": "^1.1.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "next": "^14.2.29",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.16",
+    "@types/node": "^22.13.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.29",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.3"
   }
 }
