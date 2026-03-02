@@ -16,6 +16,14 @@ Started: 2026-03-02T22:35:00+01:00
 - ActionResult<T> pattern: `{ success: true, data: T } | { success: false, error: string }` for typed error handling
 - Seed data uses deterministic IDs prefixed with `seed-` for easy identification
 - Server action tests work without Next.js runtime — 'use server' is a no-op when imported directly
+- Test cleanup: use `deleteMany` with prefix filter on IDs (e.g., `txn-test-*`) for isolation
+- Pure calculation functions in `lib/calculations.ts` — no DB deps, easy to test separately
+- Holding updates are always done through `createTransaction` (atomic via `prisma.$transaction`)
+- `getHoldings` accepts optional `currentPrices` map for computed fields (currentValue, gainLoss)
+- Symbol normalization: `.trim().toUpperCase()` in transaction creation
+- Pure utility modules (like csv-parser.ts) go in `lib/` directly, not in `lib/actions/`
+- CSV parser uses simple split-based parsing with quoted field support — no external deps
+- Import actions reuse existing server actions (e.g., `createTransaction`) for consistency rather than raw Prisma calls
 
 ---
 
@@ -44,4 +52,36 @@ Started: 2026-03-02T22:35:00+01:00
 - All 32 tests pass, typecheck passes
 - Files changed: prisma/seed.ts, lib/actions/portfolio.ts, __tests__/portfolio-actions.test.ts, package.json
 - **Learnings:** 'use server' directive at file top is a no-op outside Next.js runtime, so server actions can be tested as regular async functions without mocking.
+---
+
+## 2026-03-02 22:55 - US-004: Transaction and Holding server actions with position calculation
+- Created `lib/calculations.ts` with 3 pure functions: calculateAvgCostBasis, calculatePositionValue, calculateGainLoss
+- Created `lib/actions/transaction.ts` with getTransactions and createTransaction (atomic holding update via prisma.$transaction)
+- Created `lib/actions/holding.ts` with getHoldings (optional currentPrices for computed fields)
+- BUY: upserts holding, recalculates weighted average cost basis
+- SELL: decreases quantity, validates sufficient shares, removes holding if fully sold
+- Input validation: symbol required, quantity > 0, price >= 0, portfolio must exist
+- Symbol normalized to uppercase on creation
+- Created `__tests__/calculations.test.ts` with 9 tests for pure calculation functions
+- Created `__tests__/transaction-actions.test.ts` with 14 tests covering BUY, SELL, getTransactions, getHoldings computed fields, and input validation
+- All 55 tests pass, typecheck passes clean
+- Files changed: lib/calculations.ts, lib/actions/transaction.ts, lib/actions/holding.ts, __tests__/calculations.test.ts, __tests__/transaction-actions.test.ts
+- **Learnings:** prisma.$transaction with interactive callback is the clean way to do atomic multi-model updates. Test isolation via prefixed IDs + deleteMany cleanup works well.
+---
+
+## 2026-03-02 23:05 - US-005: CSV import parser for portfolio transactions
+- Created `lib/csv-parser.ts` with `parseTransactionCSV(csvString)` function
+  - Split-based CSV parsing with quoted field support (no external deps)
+  - Case-insensitive header matching, flexible column order
+  - Validates: required fields present, numeric values valid (quantity > 0, price >= 0, fees >= 0), date parseable
+  - Returns `{ valid: ParsedTransaction[], errors: ParseError[] }`
+  - Symbol normalization to uppercase, type case-insensitive (buy/Sell → BUY/SELL)
+- Created `lib/actions/import.ts` with `importTransactions(portfolioId, csvString)` server action
+  - Validates portfolio exists, parses CSV, creates transactions sequentially via `createTransaction`
+  - Returns `ImportResult` with imported count, parse errors, and transaction-level errors
+- Created `__tests__/csv-parser.test.ts` with 26 tests: valid parsing, case handling, column ordering, empty/null input, all validation error types, mixed valid/invalid rows
+- Created `__tests__/import-actions.test.ts` with 6 tests: successful import, parse errors, empty CSV, missing/invalid portfolio, transaction-level errors (insufficient shares)
+- All 87 tests pass, typecheck and build pass clean
+- Files changed: lib/csv-parser.ts, lib/actions/import.ts, __tests__/csv-parser.test.ts, __tests__/import-actions.test.ts
+- **Learnings:** Pure utility modules (csv-parser) go in `lib/` directly. Import actions should reuse existing server actions for consistency rather than raw Prisma calls.
 ---
