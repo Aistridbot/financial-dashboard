@@ -21,9 +21,13 @@ Started: 2026-03-02T22:35:00+01:00
 - Holding updates are always done through `createTransaction` (atomic via `prisma.$transaction`)
 - `getHoldings` accepts optional `currentPrices` map for computed fields (currentValue, gainLoss)
 - Symbol normalization: `.trim().toUpperCase()` in transaction creation
-- Pure utility modules (like csv-parser.ts) go in `lib/` directly, not in `lib/actions/`
+- Pure utility modules (like csv-parser.ts, finnhub.ts) go in `lib/` directly, not in `lib/actions/`
 - CSV parser uses simple split-based parsing with quoted field support — no external deps
 - Import actions reuse existing server actions (e.g., `createTransaction`) for consistency rather than raw Prisma calls
+- API client types go in `lib/types/` — separate type files per external API
+- FinnhubClient uses mock mode when API key is unset — deterministic data seeded from symbol chars
+- Rate limiting: sliding-window approach with `RateLimiter` class (reusable for other APIs)
+- Static helper methods on client class (mapQuote, mapNewsItem, mockQuote, etc.) for easy testing
 
 ---
 
@@ -84,4 +88,27 @@ Started: 2026-03-02T22:35:00+01:00
 - All 87 tests pass, typecheck and build pass clean
 - Files changed: lib/csv-parser.ts, lib/actions/import.ts, __tests__/csv-parser.test.ts, __tests__/import-actions.test.ts
 - **Learnings:** Pure utility modules (csv-parser) go in `lib/` directly. Import actions should reuse existing server actions for consistency rather than raw Prisma calls.
+---
+
+## 2026-03-02 23:15 - US-006: Finnhub API client with quote and news endpoints
+- Created `lib/types/finnhub.ts` with typed interfaces: FinnhubQuote, FinnhubQuoteRaw, FinnhubNewsItem, FinnhubNewsItemRaw, FinnhubConfig
+- Created `lib/finnhub.ts` with FinnhubClient class:
+  - Configurable via constructor (apiKey, baseUrl, maxRequestsPerMinute) or env var FINNHUB_API_KEY
+  - `getQuote(symbol)` — returns typed FinnhubQuote
+  - `getCompanyNews(symbol, from, to)` — returns FinnhubNewsItem[]
+  - `getMarketNews(category)` — returns FinnhubNewsItem[]
+  - Sliding-window rate limiter: max 60 calls/minute (configurable)
+  - Mock mode auto-activates when no API key — deterministic data seeded from symbol characters
+  - Symbol normalization to uppercase on all methods
+  - Static mapping helpers (mapQuote, mapNewsItem) for easy testing
+- Created `__tests__/finnhub.test.ts` with 18 tests:
+  - Mock mode activation/deactivation
+  - getQuote: type correctness, symbol normalization, determinism, price consistency, previousClose math
+  - getCompanyNews: array return, symbol in related field, all fields typed, symbol normalization
+  - getMarketNews: array return, category passthrough, default category
+  - mapQuote: raw-to-typed mapping
+  - mapNewsItem: field passthrough
+- All 105 tests pass, typecheck and build pass clean
+- Files changed: lib/types/finnhub.ts, lib/finnhub.ts, __tests__/finnhub.test.ts
+- **Learnings:** API client types in `lib/types/` per external API. Static methods on client class make unit testing straightforward. Deterministic mock data seeded from input (symbol chars) is better than random — enables snapshot-style assertions.
 ---
