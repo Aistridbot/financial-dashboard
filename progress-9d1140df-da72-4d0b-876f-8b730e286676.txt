@@ -48,6 +48,9 @@ Started: 2026-03-02T22:35:00+01:00
 - Dialog pattern: controlled open state + DialogTrigger for buttons, DialogContent for forms
 - Form validation: export pure `validateXxxForm` function for testability, use it in the component's handleSubmit
 - shadcn/ui Select, Dialog, Label components installed for form UI
+- Signal engine uses strategy pattern: `SignalStrategy` function type, `DEFAULT_STRATEGIES` array, highest-confidence wins
+- Signal actions use same ActionResult<T> pattern and symbol normalization as other actions
+- Test isolation for signals: prefix `source` field with `sig-test-` and deleteMany on that prefix
 
 ---
 
@@ -150,4 +153,18 @@ Started: 2026-03-02T22:35:00+01:00
 - All 279 tests pass (219 existing + 60 new), typecheck and build pass clean
 - Files changed: components/portfolio/add-transaction-form.tsx, components/portfolio/csv-upload.tsx, components/portfolio/portfolio-actions.tsx, app/dashboard/portfolio/page.tsx, components/ui/select.tsx, components/ui/dialog.tsx, components/ui/label.tsx, __tests__/portfolio-forms.test.ts, package.json, package-lock.json
 - **Learnings:** Export pure validation functions from client components for easy unit testing without React rendering. Use Dialog wrapper pattern: controlled state + router.refresh() to bridge client interactions with server component data refreshes.
+---
+
+## 2026-03-03 00:05 - US-011: Signal model server actions and signal generation logic
+- Created `lib/actions/signal.ts` with getSignals(filters?), createSignal(data), getSignal(id) — follows ActionResult<T> pattern
+- Created `lib/signal-engine.ts` with extensible strategy pattern: SignalStrategy type, 3 built-in strategies (priceDropBuy, priceRiseSell, defaultHold), generateSignals function
+- BUY signal on >5% price drop, SELL on >10% rise, HOLD otherwise
+- Confidence scales with magnitude: BUY maps 5-20% drop to 0.5-1.0, SELL maps 10-30% rise to 0.5-1.0, HOLD fixed at 0.3
+- Engine runs all strategies per holding, picks highest-confidence result
+- Custom strategies supported via optional third argument to generateSignals
+- Created `__tests__/signal-engine.test.ts` with 30 tests: strategy unit tests (BUY/SELL/HOLD thresholds, edge cases, confidence scaling), generateSignals integration (multiple holdings, missing quotes, empty inputs, custom strategies, null-returning strategies)
+- Created `__tests__/signal-actions.test.ts` with 14 tests: CRUD operations, input validation (empty symbol, bad direction, confidence bounds, empty source), filtering, getSignal with decisions
+- All 323 tests pass (279 existing + 44 new), typecheck and build pass clean
+- Files changed: lib/actions/signal.ts, lib/signal-engine.ts, __tests__/signal-engine.test.ts, __tests__/signal-actions.test.ts
+- **Learnings:** Strategy pattern with function arrays is clean for extensible signal generation. Test isolation for signals uses source field prefix instead of ID prefix (since IDs are auto-generated cuids).
 ---
