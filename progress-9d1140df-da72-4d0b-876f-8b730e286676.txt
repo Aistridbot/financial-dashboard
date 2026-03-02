@@ -1,0 +1,47 @@
+# Progress Log
+Run: 9d1140df-da72-4d0b-876f-8b730e286676
+Task: Build personal investment decision dashboard
+Started: 2026-03-02T22:35:00+01:00
+
+## Codebase Patterns
+- Project uses Next.js 14 with App Router, TypeScript, Tailwind, shadcn/ui
+- Tests use `node:test` + `tsx --test __tests__/**/*.test.ts`
+- Test files use `__dirname` (not `import.meta.dirname`) because tsx runs as CJS
+- Path alias `@/*` maps to project root (tsconfig paths)
+- Prisma 5.x with SQLite, db file at `.data/financial.db`
+- Singleton PrismaClient in `lib/db.ts` (globalThis pattern for dev hot-reload)
+- Scripts: `npm run migrate` (prisma migrate dev), `npm run db:push` (prisma db push), `npm run db:seed` (tsx prisma/seed.ts)
+- `.gitignore` excludes `.data/*.db`, `node_modules/`, `.next/`, `.env*`
+- Server actions go in `lib/actions/` with `'use server'` directive at file top
+- ActionResult<T> pattern: `{ success: true, data: T } | { success: false, error: string }` for typed error handling
+- Seed data uses deterministic IDs prefixed with `seed-` for easy identification
+- Server action tests work without Next.js runtime — 'use server' is a no-op when imported directly
+
+---
+
+## 2026-03-02 22:35 - US-002: Install Prisma and define core database schema
+- Installed prisma@5.22.0 and @prisma/client@5.22.0
+- Created `prisma/schema.prisma` with SQLite datasource pointing to `.data/financial.db`
+- Defined all 7 models: Portfolio, Holding, Transaction, Signal, DecisionQueueItem, ExecutionLog, NewsItem
+- All models have proper relations, indexes, and cascade deletes
+- Created `lib/db.ts` with singleton PrismaClient export (globalThis pattern)
+- Added package.json scripts: migrate, db:push, db:generate, db:studio
+- Ran `npx prisma generate` and `npx prisma db push` successfully
+- Updated `.gitignore` to exclude `.data/*.db` files
+- Files changed: prisma/schema.prisma, lib/db.ts, package.json, package-lock.json, .gitignore, __tests__/prisma-schema.test.ts
+- **Learnings:** Prisma 7 changed datasource config (requires prisma.config.ts), so pinned to v5.x for stability. tsx test runner uses CJS so `__dirname` works but `import.meta.dirname` doesn't.
+---
+
+## 2026-03-02 22:45 - US-003: Seed script and Portfolio CRUD server actions
+- Created `prisma/seed.ts` with deterministic demo data: 2 portfolios (Tech Growth, Dividend Income), 5 holdings, 6 transactions
+- Added `db:seed` script to package.json using tsx
+- Created `lib/actions/portfolio.ts` with 5 server actions: getPortfolios, getPortfolio, createPortfolio, updatePortfolio, deletePortfolio
+- All actions use `'use server'` file-level directive
+- ActionResult<T> discriminated union for typed success/error responses
+- Input validation: rejects empty/whitespace names, defaults baseCurrency to EUR
+- getPortfolio includes holdings and transactions via Prisma include
+- Created `__tests__/portfolio-actions.test.ts` with 13 tests covering full CRUD cycle + edge cases
+- All 32 tests pass, typecheck passes
+- Files changed: prisma/seed.ts, lib/actions/portfolio.ts, __tests__/portfolio-actions.test.ts, package.json
+- **Learnings:** 'use server' directive at file top is a no-op outside Next.js runtime, so server actions can be tested as regular async functions without mocking.
+---
