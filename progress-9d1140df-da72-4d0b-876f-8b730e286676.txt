@@ -21,13 +21,16 @@ Started: 2026-03-02T22:35:00+01:00
 - Holding updates are always done through `createTransaction` (atomic via `prisma.$transaction`)
 - `getHoldings` accepts optional `currentPrices` map for computed fields (currentValue, gainLoss)
 - Symbol normalization: `.trim().toUpperCase()` in transaction creation
-- Pure utility modules (like csv-parser.ts, finnhub.ts) go in `lib/` directly, not in `lib/actions/`
+- Pure utility modules (like csv-parser.ts, finnhub.ts, risk.ts) go in `lib/` directly, not in `lib/actions/`
 - CSV parser uses simple split-based parsing with quoted field support — no external deps
 - Import actions reuse existing server actions (e.g., `createTransaction`) for consistency rather than raw Prisma calls
 - API client types go in `lib/types/` — separate type files per external API
 - FinnhubClient uses mock mode when API key is unset — deterministic data seeded from symbol chars
 - Rate limiting: sliding-window approach with `RateLimiter` class (reusable for other APIs)
 - Static helper methods on client class (mapQuote, mapNewsItem, mockQuote, etc.) for easy testing
+- Risk calculations use HoldingInput interface (symbol, quantity, avgCostBasis, optional currentPrice) — decoupled from Prisma model
+- Concentration thresholds: >40% = HIGH, >25% = MEDIUM, otherwise LOW (strict greater-than, not >=)
+- Diversification score uses weighted formula: 40% position count (asymptotic) + 60% Shannon entropy evenness
 
 ---
 
@@ -101,14 +104,26 @@ Started: 2026-03-02T22:35:00+01:00
   - Mock mode auto-activates when no API key — deterministic data seeded from symbol characters
   - Symbol normalization to uppercase on all methods
   - Static mapping helpers (mapQuote, mapNewsItem) for easy testing
-- Created `__tests__/finnhub.test.ts` with 18 tests:
-  - Mock mode activation/deactivation
-  - getQuote: type correctness, symbol normalization, determinism, price consistency, previousClose math
-  - getCompanyNews: array return, symbol in related field, all fields typed, symbol normalization
-  - getMarketNews: array return, category passthrough, default category
-  - mapQuote: raw-to-typed mapping
-  - mapNewsItem: field passthrough
+- Created `__tests__/finnhub.test.ts` with 18 tests
 - All 105 tests pass, typecheck and build pass clean
 - Files changed: lib/types/finnhub.ts, lib/finnhub.ts, __tests__/finnhub.test.ts
-- **Learnings:** API client types in `lib/types/` per external API. Static methods on client class make unit testing straightforward. Deterministic mock data seeded from input (symbol chars) is better than random — enables snapshot-style assertions.
+- **Learnings:** API client types in `lib/types/` per external API. Static methods on client class make unit testing straightforward.
+---
+
+## 2026-03-02 23:25 - US-007: Risk indicator calculations for portfolio holdings
+- Created `lib/risk.ts` with 3 exported functions + types:
+  - `calculateConcentration(holdings)` — returns `{ symbol, percentage }[]` sorted descending
+  - `calculateDiversificationScore(holdings)` — returns 0-100 score (40% position count + 60% Shannon entropy)
+  - `calculatePortfolioRisk(holdings)` — returns `{ totalValue, largestPosition, concentrationRisk, diversificationScore }`
+  - HoldingInput interface: decoupled from Prisma, accepts optional `currentPrice`
+  - Concentration thresholds: >40% HIGH, >25% MEDIUM, else LOW
+  - Single-position portfolio = score 10 (minimal diversification)
+  - Even 5-position portfolio scores ~92 (high diversification)
+- Created `__tests__/risk.test.ts` with 26 tests across 3 suites:
+  - calculateConcentration: 9 tests (empty, single, equal, uneven, sorting, currentPrice, fallback, sum-to-100, zero-value)
+  - calculateDiversificationScore: 6 tests (empty, single, more-positions-higher, even-vs-uneven, range, high-score-threshold)
+  - calculatePortfolioRisk: 11 tests (empty defaults, HIGH/MEDIUM/LOW thresholds, totalValue, currentPrice, largest position, single holding, boundary 25%, boundary 40%, score included)
+- All 131 tests pass (105 existing + 26 new), typecheck clean
+- Files changed: lib/risk.ts, __tests__/risk.test.ts
+- **Learnings:** Decoupling from Prisma model via HoldingInput interface makes risk functions reusable and testable without DB. Shannon entropy gives a mathematically sound evenness metric for diversification.
 ---
