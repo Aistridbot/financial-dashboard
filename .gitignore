@@ -25,4 +25,8 @@ coverage/
 __pycache__/
 
 # data directory (local SQLite etc)
-# .data/ is kept but contents are local
+.data/*.db
+.data/*.db-journal
+
+# prisma
+tsconfig.tsbuildinfo

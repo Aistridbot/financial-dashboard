@@ -9,14 +9,20 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test __tests__/**/*.test.ts",
-    "verify:guarded": "npm run build && npm test && npm run typecheck"
+    "verify:guarded": "npm run build && npm test && npm run typecheck",
+    "migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@prisma/client": "^5.22.0",
     "@radix-ui/react-slot": "^1.1.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
     "next": "^14.2.29",
+    "prisma": "^5.22.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.6.0"

@@ -1,0 +1,120 @@
+// Prisma schema for Financial Dashboard
+// SQLite database stored in .data/financial.db
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:../.data/financial.db"
+}
+
+model Portfolio {
+  id           String    @id @default(cuid())
+  name         String
+  baseCurrency String    @default("EUR")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  holdings     Holding[]
+  transactions Transaction[]
+}
+
+model Holding {
+  id           String    @id @default(cuid())
+  portfolioId  String
+  symbol       String
+  quantity     Float
+  avgCostBasis Float
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  portfolio    Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+  @@index([symbol])
+}
+
+model Transaction {
+  id           String    @id @default(cuid())
+  portfolioId  String
+  symbol       String
+  type         String    // BUY or SELL
+  quantity     Float
+  price        Float
+  fees         Float     @default(0)
+  occurredAt   DateTime
+  createdAt    DateTime  @default(now())
+
+  portfolio    Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+  @@index([symbol])
+}
+
+model Signal {
+  id          String    @id @default(cuid())
+  symbol      String
+  direction   String    // BUY, SELL, or HOLD
+  confidence  Float
+  source      String
+  reasoning   String?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+
+  decisions   DecisionQueueItem[]
+
+  @@index([symbol])
+}
+
+model DecisionQueueItem {
+  id         String    @id @default(cuid())
+  signalId   String
+  status     String    @default("PENDING") // PENDING, APPROVED, REJECTED, EXECUTED
+  notes      String?
+  decidedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  signal     Signal    @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  executions ExecutionLog[]
+
+  @@index([signalId])
+  @@index([status])
+}
+
+model ExecutionLog {
+  id            String    @id @default(cuid())
+  decisionId    String
+  symbol        String
+  type          String    // BUY or SELL
+  quantity      Float
+  price         Float
+  fees          Float     @default(0)
+  tobTaxAmount  Float     @default(0)
+  tobTaxRate    Float     @default(0)
+  executedAt    DateTime
+  createdAt     DateTime  @default(now())
+
+  decision      DecisionQueueItem @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@index([decisionId])
+  @@index([symbol])
+}
+
+model NewsItem {
+  id             String    @id @default(cuid())
+  symbol         String
+  headline       String
+  summary        String?
+  url            String
+  source         String
+  sentiment      String    @default("NEUTRAL") // POSITIVE, NEGATIVE, NEUTRAL
+  sentimentScore Float?
+  publishedAt    DateTime
+  createdAt      DateTime  @default(now())
+
+  @@index([symbol])
+  @@index([publishedAt])
+}
