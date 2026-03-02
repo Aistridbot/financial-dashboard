@@ -51,6 +51,8 @@ Started: 2026-03-02T22:35:00+01:00
 - Signal engine uses strategy pattern: `SignalStrategy` function type, `DEFAULT_STRATEGIES` array, highest-confidence wins
 - Signal actions use same ActionResult<T> pattern and symbol normalization as other actions
 - Test isolation for signals: prefix `source` field with `sig-test-` and deleteMany on that prefix
+- Server→Client data: serialize Prisma Date fields to ISO strings when passing from server components to client components (Date objects aren't serializable across the boundary)
+- Decision queue duplicate guard: check for existing PENDING item before creating new DecisionQueueItem for a signal
 
 ---
 
@@ -167,4 +169,16 @@ Started: 2026-03-02T22:35:00+01:00
 - All 323 tests pass (279 existing + 44 new), typecheck and build pass clean
 - Files changed: lib/actions/signal.ts, lib/signal-engine.ts, __tests__/signal-engine.test.ts, __tests__/signal-actions.test.ts
 - **Learnings:** Strategy pattern with function arrays is clean for extensible signal generation. Test isolation for signals uses source field prefix instead of ID prefix (since IDs are auto-generated cuids).
+---
+
+## 2026-03-03 00:15 - US-012: Signals tab UI with signal cards and filters
+- Created `components/signals/signal-card.tsx`: client component with symbol, direction badge (color-coded green/red/gray), confidence progress bar, reasoning, dates, source, and "Send to Decision Queue" button
+- Created `components/signals/signal-filters.tsx`: client component with direction dropdown (ALL/BUY/SELL/HOLD) and min confidence number input (0-100), exported pure `validateConfidenceInput` function
+- Created `components/signals/signal-list.tsx`: client component combining filters + card grid, manages filter state with useState, applies client-side filtering via exported `applySignalFilters`, handles sendToDecisionQueue action calls
+- Created `lib/actions/decision-queue.ts`: server action `sendToDecisionQueue(signalId)` — validates signal exists, checks for duplicate pending items, creates DecisionQueueItem
+- Updated `app/dashboard/signals/page.tsx`: async server component fetching signals via getSignals, maps Prisma dates to ISO strings, passes to SignalList client component, handles error state
+- Created `__tests__/signals-tab.test.ts` with 64 tests: file structure (5), signal card structure (11), getDirectionBadgeColor (4), formatSignalDate (2), signal filters structure (6), validateConfidenceInput (7), DIRECTION_OPTIONS (3), signal list structure (7), applySignalFilters (10), page integration (5), decision-queue action (4)
+- All 387 tests pass (323 existing + 64 new), typecheck and build pass clean
+- Files changed: components/signals/signal-card.tsx, components/signals/signal-filters.tsx, components/signals/signal-list.tsx, lib/actions/decision-queue.ts, app/dashboard/signals/page.tsx, __tests__/signals-tab.test.ts
+- **Learnings:** Signal card data passed as serialized props (dates as ISO strings) from server to client component. Export pure filter functions (applySignalFilters, validateConfidenceInput) for unit testing without React rendering — same pattern as portfolio forms. Decision queue action checks for duplicate PENDING items to prevent double-queuing.
 ---
