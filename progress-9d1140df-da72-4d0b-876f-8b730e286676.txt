@@ -56,6 +56,9 @@ Started: 2026-03-02T22:35:00+01:00
 - State machine pattern for workflow status: define VALID_TRANSITIONS map, check before any status update
 - Decision actions use `prisma.$transaction` for atomic multi-model updates (e.g., executeDecision creates ExecutionLog + updates status)
 - Test isolation for decisions: use test signal prefix (`dec-test-`) on source field, cascade delete from signals → decisions → execution logs
+- Decision card conditional buttons: derive boolean flags (isPending, isApproved) from status, render action sections with `{flag && (...)}` — REJECTED/EXECUTED have no flags so no buttons
+- Decision list dialog pattern: lift dialog state (open, action, decisionId, symbol) to list parent, pass confirm callback to dialog, call server actions in parent
+- Status filter tabs: simple button list with `role="tablist"`, activeTab state, `filterByStatus` pure function for testability
 
 ---
 
@@ -192,4 +195,15 @@ Started: 2026-03-02T22:35:00+01:00
 - All 409 tests pass (387 existing + 22 new), typecheck and build pass clean
 - Files changed: lib/actions/decision.ts, __tests__/decision-actions.test.ts
 - **Learnings:** State machine pattern with VALID_TRANSITIONS record is clean and extensible. Use prisma.$transaction for multi-model atomic operations. Test assertions on included relations need `any` casts since Prisma return types don't include relations by default.
+---
+
+## 2026-03-03 00:35 - US-014: Decision Queue tab UI with approval workflow
+- Created `components/decisions/decision-card.tsx`: card showing signal details (symbol, direction, confidence, reasoning, source), status badge (color-coded: yellow PENDING, green APPROVED, red REJECTED, blue EXECUTED), conditional action buttons (PENDING→approve/reject, APPROVED→execute, REJECTED/EXECUTED→none)
+- Created `components/decisions/decision-detail-dialog.tsx`: shadcn/ui Dialog for approve/reject confirmation with optional notes textarea, dynamic title/description based on action type
+- Created `components/decisions/decision-list.tsx`: client component with status filter tabs (All, Pending, Approved, Rejected, Executed), renders DecisionCard grid, integrates DecisionDetailDialog for approve/reject flows, calls server actions (approveDecision, rejectDecision, executeDecision), router.refresh() on success
+- Updated `app/dashboard/decisions/page.tsx`: async server component fetching decisions via getDecisions, serializes Prisma dates to ISO strings, passes data to DecisionList client component, error state handling
+- Created `__tests__/decisions-tab.test.ts` with 67 tests covering: card structure & exports, button visibility per status, getStatusBadgeColor, formatDecisionDate, list structure & exports, filterByStatus logic, dialog structure & exports, getActionTitle/getActionDescription helpers, page structure, STATUS_TABS validation
+- All 476 tests pass (409 existing + 67 new), typecheck and build pass clean
+- Files changed: components/decisions/decision-card.tsx, components/decisions/decision-detail-dialog.tsx, components/decisions/decision-list.tsx, app/dashboard/decisions/page.tsx, __tests__/decisions-tab.test.ts
+- **Learnings:** Decision card conditional rendering pattern: derive boolean flags (isPending, isApproved) from status, use `{flag && (...)}` for clean conditional UI sections. Dialog state management: lift dialog open/action/id state to parent list component, pass confirm handler down.
 ---
