@@ -53,6 +53,9 @@ Started: 2026-03-02T22:35:00+01:00
 - Test isolation for signals: prefix `source` field with `sig-test-` and deleteMany on that prefix
 - Server→Client data: serialize Prisma Date fields to ISO strings when passing from server components to client components (Date objects aren't serializable across the boundary)
 - Decision queue duplicate guard: check for existing PENDING item before creating new DecisionQueueItem for a signal
+- State machine pattern for workflow status: define VALID_TRANSITIONS map, check before any status update
+- Decision actions use `prisma.$transaction` for atomic multi-model updates (e.g., executeDecision creates ExecutionLog + updates status)
+- Test isolation for decisions: use test signal prefix (`dec-test-`) on source field, cascade delete from signals → decisions → execution logs
 
 ---
 
@@ -139,46 +142,54 @@ Started: 2026-03-02T22:35:00+01:00
 - Updated `app/dashboard/portfolio/page.tsx`: async server component fetching portfolio data via getPortfolios + getHoldings, computing risk metrics via calculatePortfolioRisk + calculateConcentration, building HoldingRow data and passing to components
 - Both components use color-coded badges: green for LOW, yellow for MEDIUM, red for HIGH concentration risk
 - Page handles empty state (no portfolios) and error state gracefully
-- Created `__tests__/portfolio-tab.test.ts` with 57 tests: component file existence, exports/interfaces, content structure, badge color mapping, page integration (imports, props, data flow), risk logic integration
-- All 219 tests pass (162 existing + 57 new), typecheck and build pass clean
+- Created `__tests__/portfolio-tab.test.ts` with 57 tests
+- All 219 tests pass, typecheck and build pass clean
 - Files changed: components/portfolio/portfolio-summary.tsx, components/portfolio/holdings-table.tsx, app/dashboard/portfolio/page.tsx, __tests__/portfolio-tab.test.ts
-- **Learnings:** Feature components go in `components/<feature>/` directory. Per-holding concentration risk reuses same thresholds as portfolio-level. Async server components can call server actions directly — no client-side fetching needed.
 ---
 
 ## 2026-03-02 23:55 - US-010: Portfolio tab — add transaction form and CSV upload
-- Created `components/portfolio/add-transaction-form.tsx`: client component with form fields (symbol, type via Select, quantity, price, date, fees), client-side validation via exported `validateTransactionForm` pure function, calls `createTransaction` server action
-- Created `components/portfolio/csv-upload.tsx`: client component with file input accepting CSV, reads file via File API, calls `importTransactions` server action, displays success count and error list
-- Created `components/portfolio/portfolio-actions.tsx`: wrapper component using shadcn/ui Dialog for both Add Transaction and Import CSV buttons, calls `router.refresh()` on success to re-render server component data
-- Updated `app/dashboard/portfolio/page.tsx`: imported and rendered PortfolioActions with portfolioId in the page header
+- Created `components/portfolio/add-transaction-form.tsx`: client component with form fields
+- Created `components/portfolio/csv-upload.tsx`: client component with file input
+- Created `components/portfolio/portfolio-actions.tsx`: wrapper component using Dialog
+- Updated `app/dashboard/portfolio/page.tsx`: rendered PortfolioActions
 - Installed shadcn/ui Select, Dialog, and Label components
-- Created `__tests__/portfolio-forms.test.ts` with 60 tests: file structure checks, component exports, form field presence, validateTransactionForm pure function (17 validation tests), CSV upload structure, PortfolioActions wrapper, page integration
-- All 279 tests pass (219 existing + 60 new), typecheck and build pass clean
+- Created `__tests__/portfolio-forms.test.ts` with 60 tests
+- All 279 tests pass, typecheck and build pass clean
 - Files changed: components/portfolio/add-transaction-form.tsx, components/portfolio/csv-upload.tsx, components/portfolio/portfolio-actions.tsx, app/dashboard/portfolio/page.tsx, components/ui/select.tsx, components/ui/dialog.tsx, components/ui/label.tsx, __tests__/portfolio-forms.test.ts, package.json, package-lock.json
-- **Learnings:** Export pure validation functions from client components for easy unit testing without React rendering. Use Dialog wrapper pattern: controlled state + router.refresh() to bridge client interactions with server component data refreshes.
 ---
 
 ## 2026-03-03 00:05 - US-011: Signal model server actions and signal generation logic
-- Created `lib/actions/signal.ts` with getSignals(filters?), createSignal(data), getSignal(id) — follows ActionResult<T> pattern
-- Created `lib/signal-engine.ts` with extensible strategy pattern: SignalStrategy type, 3 built-in strategies (priceDropBuy, priceRiseSell, defaultHold), generateSignals function
-- BUY signal on >5% price drop, SELL on >10% rise, HOLD otherwise
-- Confidence scales with magnitude: BUY maps 5-20% drop to 0.5-1.0, SELL maps 10-30% rise to 0.5-1.0, HOLD fixed at 0.3
-- Engine runs all strategies per holding, picks highest-confidence result
-- Custom strategies supported via optional third argument to generateSignals
-- Created `__tests__/signal-engine.test.ts` with 30 tests: strategy unit tests (BUY/SELL/HOLD thresholds, edge cases, confidence scaling), generateSignals integration (multiple holdings, missing quotes, empty inputs, custom strategies, null-returning strategies)
-- Created `__tests__/signal-actions.test.ts` with 14 tests: CRUD operations, input validation (empty symbol, bad direction, confidence bounds, empty source), filtering, getSignal with decisions
-- All 323 tests pass (279 existing + 44 new), typecheck and build pass clean
+- Created `lib/actions/signal.ts` with getSignals(filters?), createSignal(data), getSignal(id)
+- Created `lib/signal-engine.ts` with extensible strategy pattern
+- Created `__tests__/signal-engine.test.ts` with 30 tests
+- Created `__tests__/signal-actions.test.ts` with 14 tests
+- All 323 tests pass, typecheck and build pass clean
 - Files changed: lib/actions/signal.ts, lib/signal-engine.ts, __tests__/signal-engine.test.ts, __tests__/signal-actions.test.ts
-- **Learnings:** Strategy pattern with function arrays is clean for extensible signal generation. Test isolation for signals uses source field prefix instead of ID prefix (since IDs are auto-generated cuids).
 ---
 
 ## 2026-03-03 00:15 - US-012: Signals tab UI with signal cards and filters
-- Created `components/signals/signal-card.tsx`: client component with symbol, direction badge (color-coded green/red/gray), confidence progress bar, reasoning, dates, source, and "Send to Decision Queue" button
-- Created `components/signals/signal-filters.tsx`: client component with direction dropdown (ALL/BUY/SELL/HOLD) and min confidence number input (0-100), exported pure `validateConfidenceInput` function
-- Created `components/signals/signal-list.tsx`: client component combining filters + card grid, manages filter state with useState, applies client-side filtering via exported `applySignalFilters`, handles sendToDecisionQueue action calls
-- Created `lib/actions/decision-queue.ts`: server action `sendToDecisionQueue(signalId)` — validates signal exists, checks for duplicate pending items, creates DecisionQueueItem
-- Updated `app/dashboard/signals/page.tsx`: async server component fetching signals via getSignals, maps Prisma dates to ISO strings, passes to SignalList client component, handles error state
-- Created `__tests__/signals-tab.test.ts` with 64 tests: file structure (5), signal card structure (11), getDirectionBadgeColor (4), formatSignalDate (2), signal filters structure (6), validateConfidenceInput (7), DIRECTION_OPTIONS (3), signal list structure (7), applySignalFilters (10), page integration (5), decision-queue action (4)
-- All 387 tests pass (323 existing + 64 new), typecheck and build pass clean
+- Created `components/signals/signal-card.tsx`, `signal-filters.tsx`, `signal-list.tsx`
+- Created `lib/actions/decision-queue.ts`: sendToDecisionQueue server action
+- Updated `app/dashboard/signals/page.tsx`
+- Created `__tests__/signals-tab.test.ts` with 64 tests
+- All 387 tests pass, typecheck and build pass clean
 - Files changed: components/signals/signal-card.tsx, components/signals/signal-filters.tsx, components/signals/signal-list.tsx, lib/actions/decision-queue.ts, app/dashboard/signals/page.tsx, __tests__/signals-tab.test.ts
-- **Learnings:** Signal card data passed as serialized props (dates as ISO strings) from server to client component. Export pure filter functions (applySignalFilters, validateConfidenceInput) for unit testing without React rendering — same pattern as portfolio forms. Decision queue action checks for duplicate PENDING items to prevent double-queuing.
+---
+
+## 2026-03-03 00:25 - US-013: Decision Queue server actions and approval workflow
+- Created `lib/actions/decision.ts` with 5 exported functions: getDecisions, createDecision, approveDecision, rejectDecision, executeDecision
+- State machine with VALID_TRANSITIONS map: PENDING→APPROVED/REJECTED, APPROVED→EXECUTED, REJECTED/EXECUTED→(none)
+- createDecision validates signal exists, checks for duplicate PENDING, creates linked item
+- approveDecision/rejectDecision validate state transition, set decidedAt timestamp and notes
+- executeDecision uses prisma.$transaction to atomically create ExecutionLog + update status
+- ExecutionLog entry copies symbol and direction from linked signal
+- Created `__tests__/decision-actions.test.ts` with 22 tests covering full workflow lifecycle:
+  - createDecision: success, empty ID, non-existent signal, duplicate pending
+  - approveDecision: success with/without notes, reject from APPROVED/REJECTED states, empty/non-existent ID
+  - rejectDecision: success, reject from APPROVED/REJECTED states
+  - executeDecision: success (BUY/SELL types), reject from PENDING/REJECTED/EXECUTED states
+  - getDecisions: all, filter by status, filter by symbol, includes relations
+- All 409 tests pass (387 existing + 22 new), typecheck and build pass clean
+- Files changed: lib/actions/decision.ts, __tests__/decision-actions.test.ts
+- **Learnings:** State machine pattern with VALID_TRANSITIONS record is clean and extensible. Use prisma.$transaction for multi-model atomic operations. Test assertions on included relations need `any` casts since Prisma return types don't include relations by default.
 ---
