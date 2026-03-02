@@ -1,6 +1,8 @@
 'use server';
 
 import { prisma } from '@/lib/db';
+import { calculateTOBTax } from '@/lib/tob-tax';
+import type { InstrumentType } from '@/lib/tob-tax';
 
 type ActionResult<T> =
   | { success: true; data: T }
@@ -170,17 +172,25 @@ export async function executeDecision(
 
     // Execute in a transaction: create ExecutionLog + update status
     const updated = await prisma.$transaction(async (tx) => {
+      const txType = decision.signal.direction === 'SELL' ? 'SELL' as const : 'BUY' as const;
+      const quantity = 0; // Placeholder — actual quantity set during real execution
+      const price = 0; // Placeholder — actual price set during real execution
+      const amount = quantity * price;
+
+      // Calculate Belgian TOB tax (defaults to stock rate)
+      const tob = calculateTOBTax(txType, amount);
+
       // Create ExecutionLog entry
       await tx.executionLog.create({
         data: {
           decisionId: id,
           symbol: decision.signal.symbol,
-          type: decision.signal.direction === 'SELL' ? 'SELL' : 'BUY',
-          quantity: 0, // Placeholder — actual quantity set during real execution
-          price: 0, // Placeholder — actual price set during real execution
+          type: txType,
+          quantity,
+          price,
           fees: 0,
-          tobTaxAmount: 0,
-          tobTaxRate: 0,
+          tobTaxAmount: tob.taxAmount,
+          tobTaxRate: tob.taxRate,
           executedAt: new Date(),
         },
       });
