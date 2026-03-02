@@ -59,6 +59,9 @@ Started: 2026-03-02T22:35:00+01:00
 - Decision card conditional buttons: derive boolean flags (isPending, isApproved) from status, render action sections with `{flag && (...)}` — REJECTED/EXECUTED have no flags so no buttons
 - Decision list dialog pattern: lift dialog state (open, action, decisionId, symbol) to list parent, pass confirm callback to dialog, call server actions in parent
 - Status filter tabs: simple button list with `role="tablist"`, activeTab state, `filterByStatus` pure function for testability
+- Belgian TOB tax: pure function in `lib/tob-tax.ts`, rates/caps in a record keyed by InstrumentType — easy to extend
+- TOB tax integration: `executeDecision` calls `calculateTOBTax` at execution time, stores rate+amount on ExecutionLog
+- Test isolation for execution logs: prefix IDs with `exlog-test-`, clean up signals → decisions → logs
 
 ---
 
@@ -206,4 +209,20 @@ Started: 2026-03-02T22:35:00+01:00
 - All 476 tests pass (409 existing + 67 new), typecheck and build pass clean
 - Files changed: components/decisions/decision-card.tsx, components/decisions/decision-detail-dialog.tsx, components/decisions/decision-list.tsx, app/dashboard/decisions/page.tsx, __tests__/decisions-tab.test.ts
 - **Learnings:** Decision card conditional rendering pattern: derive boolean flags (isPending, isApproved) from status, use `{flag && (...)}` for clean conditional UI sections. Dialog state management: lift dialog open/action/id state to parent list component, pass confirm handler down.
+---
+
+## 2026-03-03 00:45 - US-015: Execution Log with TOB tax calculation
+- Created `lib/tob-tax.ts` with `calculateTOBTax(type, amount, instrumentType?)` returning `{ taxRate, taxAmount, cappedAt }`
+- Belgian TOB rates: stocks 0.35% (cap €1,600), accumulating funds 1.32% (cap €4,000), bonds/ETFs 0.12% (cap €1,300)
+- Defaults to stock rate when instrumentType is omitted
+- Tax amounts rounded to cents via `Math.round(x * 100) / 100`
+- Created `lib/actions/execution-log.ts` with `getExecutionLogs(filters?)` and `getExecutionLog(id)`
+- getExecutionLogs supports filters: symbol (normalized), type, fromDate, toDate
+- Both actions include nested decision→signal relations
+- Updated `lib/actions/decision.ts` executeDecision to call calculateTOBTax at execution time
+- Created `__tests__/tob-tax.test.ts` with 16 tests: all 3 instrument types, cap verification, edge cases (zero, rounding, small amounts, BUY/SELL parity)
+- Created `__tests__/execution-log-actions.test.ts` with 9 tests: getExecutionLogs (all, filter by symbol, filter by type, relations, empty result), getExecutionLog (by ID, relations, empty ID, non-existent ID)
+- All 501 tests pass (476 existing + 25 new), typecheck passes clean
+- Files changed: lib/tob-tax.ts, lib/actions/execution-log.ts, lib/actions/decision.ts, __tests__/tob-tax.test.ts, __tests__/execution-log-actions.test.ts
+- **Learnings:** Pure tax calculation functions with rates/caps in a record type make it trivial to add new instrument types. Tax integration point is in executeDecision — single source of truth for when tax is computed.
 ---
