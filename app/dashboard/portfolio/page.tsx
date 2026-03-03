@@ -1,16 +1,18 @@
 /**
  * Portfolio tab page.
  *
- * Server component that fetches holdings and risk data,
- * then renders summary cards and holdings table.
+ * Server component that fetches holdings with live quote data,
+ * then renders summary cards, holdings table, and refresh controls.
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PortfolioSummary } from "@/components/portfolio/portfolio-summary"
 import { HoldingsTable, type HoldingRow } from "@/components/portfolio/holdings-table"
 import { PortfolioActions } from "@/components/portfolio/portfolio-actions"
+import { RefreshQuotesButton } from "@/components/portfolio/refresh-quotes-button"
 import { getPortfolios } from "@/lib/actions/portfolio"
 import { getHoldings, type HoldingWithComputed } from "@/lib/actions/holding"
+import { buildPriceMap, getQuoteStaleness } from "@/lib/quote-cache"
 import {
   calculatePortfolioRisk,
   calculateConcentration,
@@ -48,7 +50,28 @@ export default async function PortfolioPage() {
   }
 
   const portfolio = portfoliosResult.data[0]
-  const holdingsResult = await getHoldings(portfolio.id)
+
+  // Get holding symbols first (without prices) to build price map
+  const rawHoldingsResult = await getHoldings(portfolio.id)
+
+  if (!rawHoldingsResult.success) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Portfolio — {portfolio.name}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-red-600">Error loading holdings: {rawHoldingsResult.error}</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const symbols = rawHoldingsResult.data.map((h) => h.symbol)
+
+  // Build price map from cached quotes and re-fetch holdings with prices
+  const currentPrices = buildPriceMap(symbols)
+  const holdingsResult = await getHoldings(portfolio.id, currentPrices)
 
   if (!holdingsResult.success) {
     return (
@@ -65,6 +88,9 @@ export default async function PortfolioPage() {
 
   const holdings = holdingsResult.data
 
+  // Get staleness info for warning indicators
+  const staleness = getQuoteStaleness(symbols)
+
   // Build risk inputs from holdings
   const holdingInputs: HoldingInput[] = holdings.map((h) => ({
     symbol: h.symbol,
@@ -80,9 +106,16 @@ export default async function PortfolioPage() {
   // Calculate total gain/loss from holdings
   const totalGainLoss = holdings.reduce((sum, h) => sum + (h.gainLoss ?? 0), 0)
 
+  // Check if any quotes are stale or missing
+  const hasStaleQuotes = symbols.some((s) => {
+    const info = staleness[s]
+    return !info || info.isStale
+  })
+
   // Build table rows
   const holdingRows: HoldingRow[] = holdings.map((h) => {
     const concPercent = concentrationMap.get(h.symbol) ?? 0
+    const quoteInfo = staleness[h.symbol]
     return {
       symbol: h.symbol,
       quantity: h.quantity,
@@ -92,6 +125,8 @@ export default async function PortfolioPage() {
       gainLossPercent: h.gainLossPercent,
       concentrationPercent: concPercent,
       concentrationRisk: getHoldingConcentrationRisk(concPercent),
+      quoteStale: quoteInfo ? quoteInfo.isStale : undefined,
+      quoteMissing: !quoteInfo,
     }
   })
 
@@ -104,8 +139,20 @@ export default async function PortfolioPage() {
             Overview of your holdings and portfolio risk metrics.
           </p>
         </div>
-        <PortfolioActions portfolioId={portfolio.id} />
+        <div className="flex items-center gap-2">
+          <RefreshQuotesButton symbols={symbols} />
+          <PortfolioActions portfolioId={portfolio.id} />
+        </div>
       </div>
+
+      {hasStaleQuotes && (
+        <div
+          className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2"
+          data-testid="stale-quotes-warning"
+        >
+          ⚠ Some quotes are missing or stale. Click &quot;Refresh Quotes&quot; to update prices.
+        </div>
+      )}
 
       <PortfolioSummary
         totalValue={risk.totalValue}

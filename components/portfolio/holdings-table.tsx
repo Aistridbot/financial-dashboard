@@ -26,6 +26,10 @@ export interface HoldingRow {
   gainLossPercent: number | null
   concentrationPercent: number
   concentrationRisk: ConcentrationRisk
+  /** True if the cached quote is older than the stale threshold */
+  quoteStale?: boolean
+  /** True if no cached quote exists for this symbol */
+  quoteMissing?: boolean
 }
 
 export interface HoldingsTableProps {
@@ -93,7 +97,17 @@ export function HoldingsTable({ holdings }: HoldingsTableProps) {
                 <TableCell className="font-medium">{holding.symbol}</TableCell>
                 <TableCell className="text-right">{holding.quantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right">{formatCurrency(holding.avgCostBasis)}</TableCell>
-                <TableCell className="text-right">{formatCurrency(holding.currentValue)}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    {formatCurrency(holding.currentValue)}
+                    {holding.quoteMissing && (
+                      <span className="text-amber-500 text-xs" title="No quote data" data-testid={`quote-missing-${holding.symbol}`}>⚠</span>
+                    )}
+                    {holding.quoteStale && !holding.quoteMissing && (
+                      <span className="text-amber-400 text-xs" title="Stale quote" data-testid={`quote-stale-${holding.symbol}`}>⏳</span>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className={`text-right ${gainLossColor}`}>
                   <div>
                     {formatCurrency(holding.gainLoss)}
