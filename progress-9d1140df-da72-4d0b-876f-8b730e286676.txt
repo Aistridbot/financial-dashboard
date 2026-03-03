@@ -21,7 +21,7 @@ Started: 2026-03-02T22:35:00+01:00
 - Holding updates are always done through `createTransaction` (atomic via `prisma.$transaction`)
 - `getHoldings` accepts optional `currentPrices` map for computed fields (currentValue, gainLoss)
 - Symbol normalization: `.trim().toUpperCase()` in transaction creation
-- Pure utility modules (like csv-parser.ts, finnhub.ts, risk.ts) go in `lib/` directly, not in `lib/actions/`
+- Pure utility modules (like csv-parser.ts, finnhub.ts, risk.ts, sentiment.ts) go in `lib/` directly, not in `lib/actions/`
 - CSV parser uses simple split-based parsing with quoted field support — no external deps
 - Import actions reuse existing server actions (e.g., `createTransaction`) for consistency rather than raw Prisma calls
 - API client types go in `lib/types/` — separate type files per external API
@@ -65,6 +65,10 @@ Started: 2026-03-02T22:35:00+01:00
 - Client wrapper pattern for interactive tabs: server page fetches data + serializes dates, renders a *-client.tsx component that manages filter/interaction state
 - Pure filter functions (applyFilters) exported from filter components — testable without React, reusable server-side
 - Tax summary always computed on full dataset (not filtered subset) — filters only affect the table view
+- Sentiment scoring: keyword-based with Finnhub override; `scoreSentiment(headline, summary?, finnhubScore?)` returns `{ label, score }`
+- News dedup: check existing by URL+symbol before inserting to avoid duplicates on re-fetch
+- Use `prisma.holding.findMany({ distinct: ['symbol'] })` to get unique symbols across all portfolios (avoids needing portfolioId)
+- Avoid `[...new Set()]` spread — use `Array.from(new Set())` for TS target compatibility
 
 ---
 
@@ -99,22 +103,13 @@ Started: 2026-03-02T22:35:00+01:00
 - Created `lib/calculations.ts` with 3 pure functions: calculateAvgCostBasis, calculatePositionValue, calculateGainLoss
 - Created `lib/actions/transaction.ts` with getTransactions and createTransaction (atomic holding update via prisma.$transaction)
 - Created `lib/actions/holding.ts` with getHoldings (optional currentPrices for computed fields)
-- BUY: upserts holding, recalculates weighted average cost basis
-- SELL: decreases quantity, validates sufficient shares, removes holding if fully sold
-- Input validation: symbol required, quantity > 0, price >= 0, portfolio must exist
-- Symbol normalized to uppercase on creation
-- Created `__tests__/calculations.test.ts` with 9 tests for pure calculation functions
-- Created `__tests__/transaction-actions.test.ts` with 14 tests covering BUY, SELL, getTransactions, getHoldings computed fields, and input validation
 - All 55 tests pass, typecheck passes clean
 - Files changed: lib/calculations.ts, lib/actions/transaction.ts, lib/actions/holding.ts, __tests__/calculations.test.ts, __tests__/transaction-actions.test.ts
-- **Learnings:** prisma.$transaction with interactive callback is the clean way to do atomic multi-model updates. Test isolation via prefixed IDs + deleteMany cleanup works well.
 ---
 
 ## 2026-03-02 23:05 - US-005: CSV import parser for portfolio transactions
 - Created `lib/csv-parser.ts` with `parseTransactionCSV(csvString)` function
 - Created `lib/actions/import.ts` with `importTransactions(portfolioId, csvString)` server action
-- Created `__tests__/csv-parser.test.ts` with 26 tests
-- Created `__tests__/import-actions.test.ts` with 6 tests
 - All 87 tests pass, typecheck and build pass clean
 - Files changed: lib/csv-parser.ts, lib/actions/import.ts, __tests__/csv-parser.test.ts, __tests__/import-actions.test.ts
 ---
@@ -122,122 +117,74 @@ Started: 2026-03-02T22:35:00+01:00
 ## 2026-03-02 23:15 - US-006: Finnhub API client with quote and news endpoints
 - Created `lib/types/finnhub.ts` with typed interfaces
 - Created `lib/finnhub.ts` with FinnhubClient class (mock mode, rate limiting, symbol normalization)
-- Created `__tests__/finnhub.test.ts` with 18 tests
 - All 105 tests pass, typecheck and build pass clean
 - Files changed: lib/types/finnhub.ts, lib/finnhub.ts, __tests__/finnhub.test.ts
 ---
 
 ## 2026-03-02 23:25 - US-007: Risk indicator calculations for portfolio holdings
 - Created `lib/risk.ts` with calculateConcentration, calculateDiversificationScore, calculatePortfolioRisk
-- Created `__tests__/risk.test.ts` with 26 tests
 - All 131 tests pass, typecheck clean
 - Files changed: lib/risk.ts, __tests__/risk.test.ts
 ---
 
 ## 2026-03-02 23:35 - US-008: Dashboard shell with tab navigation layout
-- Installed shadcn/ui components: tabs, card, button, badge, input, table (via `npx shadcn@latest add`)
-- Created `app/dashboard/layout.tsx` — client component with top nav, usePathname for active tab highlighting, aria-selected + role=tablist for accessibility
-- Created `app/dashboard/page.tsx` — redirects to /dashboard/portfolio via next/navigation redirect
-- Created 5 tab pages: portfolio, signals, decisions, execution-log, news — each renders CardTitle heading with description
-- Created `__tests__/dashboard-layout.test.ts` with 31 tests
+- Installed shadcn/ui components: tabs, card, button, badge, input, table
+- Created `app/dashboard/layout.tsx`, `app/dashboard/page.tsx`, 5 tab pages
 - All 162 tests pass, typecheck and build pass clean
-- Files changed: app/dashboard/layout.tsx, app/dashboard/page.tsx, app/dashboard/{portfolio,signals,decisions,execution-log,news}/page.tsx, components/ui/{tabs,card,button,badge,input,table}.tsx, __tests__/dashboard-layout.test.ts, package.json, package-lock.json
-- **Learnings:** Dashboard layout uses Link-based navigation (not shadcn Tabs) because App Router needs URL-based routing. Active tab via `pathname?.startsWith(href)` handles nested routes cleanly. Layout must be "use client" for usePathname but tab pages stay server components.
 ---
 
 ## 2026-03-02 23:45 - US-009: Portfolio tab — holdings table and summary cards
-- Created `components/portfolio/portfolio-summary.tsx`: 4-card grid showing total value, gain/loss, positions count, diversification score with concentration risk badge
-- Created `components/portfolio/holdings-table.tsx`: table with symbol, quantity, avg cost, current value, gain/loss, concentration % with per-holding risk badges and empty state
-- Updated `app/dashboard/portfolio/page.tsx`: async server component fetching portfolio data via getPortfolios + getHoldings, computing risk metrics via calculatePortfolioRisk + calculateConcentration, building HoldingRow data and passing to components
-- Both components use color-coded badges: green for LOW, yellow for MEDIUM, red for HIGH concentration risk
-- Page handles empty state (no portfolios) and error state gracefully
-- Created `__tests__/portfolio-tab.test.ts` with 57 tests
+- Created `components/portfolio/portfolio-summary.tsx`, `components/portfolio/holdings-table.tsx`
+- Updated `app/dashboard/portfolio/page.tsx`
 - All 219 tests pass, typecheck and build pass clean
-- Files changed: components/portfolio/portfolio-summary.tsx, components/portfolio/holdings-table.tsx, app/dashboard/portfolio/page.tsx, __tests__/portfolio-tab.test.ts
 ---
 
 ## 2026-03-02 23:55 - US-010: Portfolio tab — add transaction form and CSV upload
-- Created `components/portfolio/add-transaction-form.tsx`: client component with form fields
-- Created `components/portfolio/csv-upload.tsx`: client component with file input
-- Created `components/portfolio/portfolio-actions.tsx`: wrapper component using Dialog
-- Updated `app/dashboard/portfolio/page.tsx`: rendered PortfolioActions
-- Installed shadcn/ui Select, Dialog, and Label components
-- Created `__tests__/portfolio-forms.test.ts` with 60 tests
+- Created `components/portfolio/add-transaction-form.tsx`, `csv-upload.tsx`, `portfolio-actions.tsx`
 - All 279 tests pass, typecheck and build pass clean
-- Files changed: components/portfolio/add-transaction-form.tsx, components/portfolio/csv-upload.tsx, components/portfolio/portfolio-actions.tsx, app/dashboard/portfolio/page.tsx, components/ui/select.tsx, components/ui/dialog.tsx, components/ui/label.tsx, __tests__/portfolio-forms.test.ts, package.json, package-lock.json
 ---
 
 ## 2026-03-03 00:05 - US-011: Signal model server actions and signal generation logic
-- Created `lib/actions/signal.ts` with getSignals(filters?), createSignal(data), getSignal(id)
-- Created `lib/signal-engine.ts` with extensible strategy pattern
-- Created `__tests__/signal-engine.test.ts` with 30 tests
-- Created `__tests__/signal-actions.test.ts` with 14 tests
+- Created `lib/actions/signal.ts`, `lib/signal-engine.ts`
 - All 323 tests pass, typecheck and build pass clean
-- Files changed: lib/actions/signal.ts, lib/signal-engine.ts, __tests__/signal-engine.test.ts, __tests__/signal-actions.test.ts
 ---
 
 ## 2026-03-03 00:15 - US-012: Signals tab UI with signal cards and filters
 - Created `components/signals/signal-card.tsx`, `signal-filters.tsx`, `signal-list.tsx`
-- Created `lib/actions/decision-queue.ts`: sendToDecisionQueue server action
-- Updated `app/dashboard/signals/page.tsx`
-- Created `__tests__/signals-tab.test.ts` with 64 tests
+- Created `lib/actions/decision-queue.ts`
 - All 387 tests pass, typecheck and build pass clean
-- Files changed: components/signals/signal-card.tsx, components/signals/signal-filters.tsx, components/signals/signal-list.tsx, lib/actions/decision-queue.ts, app/dashboard/signals/page.tsx, __tests__/signals-tab.test.ts
 ---
 
 ## 2026-03-03 00:25 - US-013: Decision Queue server actions and approval workflow
-- Created `lib/actions/decision.ts` with 5 exported functions: getDecisions, createDecision, approveDecision, rejectDecision, executeDecision
-- State machine with VALID_TRANSITIONS map: PENDING→APPROVED/REJECTED, APPROVED→EXECUTED, REJECTED/EXECUTED→(none)
-- createDecision validates signal exists, checks for duplicate PENDING, creates linked item
-- approveDecision/rejectDecision validate state transition, set decidedAt timestamp and notes
-- executeDecision uses prisma.$transaction to atomically create ExecutionLog + update status
-- ExecutionLog entry copies symbol and direction from linked signal
-- Created `__tests__/decision-actions.test.ts` with 22 tests covering full workflow lifecycle:
-  - createDecision: success, empty ID, non-existent signal, duplicate pending
-  - approveDecision: success with/without notes, reject from APPROVED/REJECTED states, empty/non-existent ID
-  - rejectDecision: success, reject from APPROVED/REJECTED states
-  - executeDecision: success (BUY/SELL types), reject from PENDING/REJECTED/EXECUTED states
-  - getDecisions: all, filter by status, filter by symbol, includes relations
-- All 409 tests pass (387 existing + 22 new), typecheck and build pass clean
-- Files changed: lib/actions/decision.ts, __tests__/decision-actions.test.ts
-- **Learnings:** State machine pattern with VALID_TRANSITIONS record is clean and extensible. Use prisma.$transaction for multi-model atomic operations. Test assertions on included relations need `any` casts since Prisma return types don't include relations by default.
+- Created `lib/actions/decision.ts` with state machine transitions
+- All 409 tests pass, typecheck and build pass clean
 ---
 
 ## 2026-03-03 00:35 - US-014: Decision Queue tab UI with approval workflow
-- Created `components/decisions/decision-card.tsx`: card showing signal details (symbol, direction, confidence, reasoning, source), status badge (color-coded: yellow PENDING, green APPROVED, red REJECTED, blue EXECUTED), conditional action buttons (PENDING→approve/reject, APPROVED→execute, REJECTED/EXECUTED→none)
-- Created `components/decisions/decision-detail-dialog.tsx`: shadcn/ui Dialog for approve/reject confirmation with optional notes textarea, dynamic title/description based on action type
-- Created `components/decisions/decision-list.tsx`: client component with status filter tabs (All, Pending, Approved, Rejected, Executed), renders DecisionCard grid, integrates DecisionDetailDialog for approve/reject flows, calls server actions (approveDecision, rejectDecision, executeDecision), router.refresh() on success
-- Updated `app/dashboard/decisions/page.tsx`: async server component fetching decisions via getDecisions, serializes Prisma dates to ISO strings, passes data to DecisionList client component, error state handling
-- Created `__tests__/decisions-tab.test.ts` with 67 tests covering: card structure & exports, button visibility per status, getStatusBadgeColor, formatDecisionDate, list structure & exports, filterByStatus logic, dialog structure & exports, getActionTitle/getActionDescription helpers, page structure, STATUS_TABS validation
-- All 476 tests pass (409 existing + 67 new), typecheck and build pass clean
-- Files changed: components/decisions/decision-card.tsx, components/decisions/decision-detail-dialog.tsx, components/decisions/decision-list.tsx, app/dashboard/decisions/page.tsx, __tests__/decisions-tab.test.ts
-- **Learnings:** Decision card conditional rendering pattern: derive boolean flags (isPending, isApproved) from status, use `{flag && (...)}` for clean conditional UI sections. Dialog state management: lift dialog open/action/id state to parent list component, pass confirm handler down.
+- Created `components/decisions/decision-card.tsx`, `decision-detail-dialog.tsx`, `decision-list.tsx`
+- All 476 tests pass, typecheck and build pass clean
 ---
 
 ## 2026-03-03 00:45 - US-015: Execution Log with TOB tax calculation
-- Created `lib/tob-tax.ts` with `calculateTOBTax(type, amount, instrumentType?)` returning `{ taxRate, taxAmount, cappedAt }`
-- Belgian TOB rates: stocks 0.35% (cap €1,600), accumulating funds 1.32% (cap €4,000), bonds/ETFs 0.12% (cap €1,300)
-- Defaults to stock rate when instrumentType is omitted
-- Tax amounts rounded to cents via `Math.round(x * 100) / 100`
-- Created `lib/actions/execution-log.ts` with `getExecutionLogs(filters?)` and `getExecutionLog(id)`
-- getExecutionLogs supports filters: symbol (normalized), type, fromDate, toDate
-- Both actions include nested decision→signal relations
-- Updated `lib/actions/decision.ts` executeDecision to call calculateTOBTax at execution time
-- Created `__tests__/tob-tax.test.ts` with 16 tests: all 3 instrument types, cap verification, edge cases (zero, rounding, small amounts, BUY/SELL parity)
-- Created `__tests__/execution-log-actions.test.ts` with 9 tests: getExecutionLogs (all, filter by symbol, filter by type, relations, empty result), getExecutionLog (by ID, relations, empty ID, non-existent ID)
-- All 501 tests pass (476 existing + 25 new), typecheck passes clean
-- Files changed: lib/tob-tax.ts, lib/actions/execution-log.ts, lib/actions/decision.ts, __tests__/tob-tax.test.ts, __tests__/execution-log-actions.test.ts
-- **Learnings:** Pure tax calculation functions with rates/caps in a record type make it trivial to add new instrument types. Tax integration point is in executeDecision — single source of truth for when tax is computed.
+- Created `lib/tob-tax.ts`, `lib/actions/execution-log.ts`
+- Updated `lib/actions/decision.ts` for TOB tax integration
+- All 501 tests pass, typecheck passes clean
 ---
 
 ## 2026-03-03 00:55 - US-016: Execution Log tab UI with tax summary
-- Created `components/execution-log/execution-table.tsx`: table with Date, Symbol, Type (BUY/SELL badge), Quantity, Price, Total, TOB Rate (%), TOB Tax (€) columns; empty state; formatCurrency, formatPercentage, formatDate, getTypeBadgeColor helpers
-- Created `components/execution-log/tax-summary.tsx`: 3-card grid showing YTD TOB Tax, Total Executions, Total Traded Volume; calculateTaxSummary pure function filters by year, rounds to cents
-- Created `components/execution-log/execution-filters.tsx`: symbol search, from/to date inputs, Apply/Clear buttons; applyFilters pure function for client-side filtering (case-insensitive symbol, date range)
-- Created `components/execution-log/execution-log-client.tsx`: client wrapper managing filter state, passes filtered logs to table and all logs to tax summary
-- Updated `app/dashboard/execution-log/page.tsx`: async server component calling getExecutionLogs, serializing dates to ISO strings, error state handling, renders ExecutionLogClient
-- Created `__tests__/execution-log-tab.test.ts` with 71 tests: table structure (15), formatCurrency (2), formatPercentage (4), formatDate (1), getTypeBadgeColor (3), tax summary structure (10), calculateTaxSummary logic (5), filters structure (9), applyFilters logic (8), client component (7), page structure (7)
-- All 572 tests pass (501 existing + 71 new), typecheck passes clean
-- Files changed: components/execution-log/execution-table.tsx, components/execution-log/tax-summary.tsx, components/execution-log/execution-filters.tsx, components/execution-log/execution-log-client.tsx, app/dashboard/execution-log/page.tsx, __tests__/execution-log-tab.test.ts
-- **Learnings:** Client wrapper pattern for tab pages: server component fetches + serializes, client component manages interactive state (filters). Tax summary computed on all logs (not filtered) to always show YTD totals. Pure filter functions exported separately for testability without React rendering.
+- Created `components/execution-log/execution-table.tsx`, `tax-summary.tsx`, `execution-filters.tsx`, `execution-log-client.tsx`
+- All 572 tests pass, typecheck passes clean
+---
+
+## 2026-03-03 01:10 - US-017: News tab with Finnhub feed and sentiment display
+- Created `lib/sentiment.ts`: keyword-based sentiment scoring with Finnhub override, exports `scoreSentiment()` and `getSentimentBadgeColor()`
+- Created `lib/actions/news.ts`: `fetchAndStoreNews(symbols)` fetches from FinnhubClient, scores sentiment, stores in DB with dedup; `getNews(filters?)` reads with optional symbol/sentiment/date filters
+- Created `components/news/news-card.tsx`: card with headline link, source, date, symbol badge, color-coded sentiment badge (green/red/gray), summary snippet
+- Created `components/news/news-filters.tsx`: symbol dropdown, sentiment dropdown, date range inputs, Apply/Clear buttons; exports `applyNewsFilters()` pure function
+- Created `components/news/news-feed.tsx`: scrollable feed with filters, empty state, item count display
+- Updated `app/dashboard/news/page.tsx`: async server component fetching news + unique symbols from holdings, serializes dates, renders NewsFeed
+- Created `__tests__/news-tab.test.ts` with 63 tests: sentiment scoring (12), badge colors (3), news actions (7), card structure (11), formatNewsDate (1), filters structure (8), applyNewsFilters (7), feed structure (8), page structure (6)
+- All 635 tests pass (572 existing + 63 new), typecheck and build pass clean
+- Files changed: lib/sentiment.ts, lib/actions/news.ts, components/news/news-card.tsx, components/news/news-filters.tsx, components/news/news-feed.tsx, app/dashboard/news/page.tsx, __tests__/news-tab.test.ts
+- **Learnings:** Use `Array.from(new Set())` instead of spread for TS target compatibility. `prisma.holding.findMany({ distinct: ['symbol'] })` gets unique symbols without needing portfolioId. News dedup by URL+symbol prevents duplicates on re-fetch.
 ---
