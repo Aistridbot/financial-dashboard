@@ -62,6 +62,9 @@ Started: 2026-03-02T22:35:00+01:00
 - Belgian TOB tax: pure function in `lib/tob-tax.ts`, rates/caps in a record keyed by InstrumentType — easy to extend
 - TOB tax integration: `executeDecision` calls `calculateTOBTax` at execution time, stores rate+amount on ExecutionLog
 - Test isolation for execution logs: prefix IDs with `exlog-test-`, clean up signals → decisions → logs
+- Client wrapper pattern for interactive tabs: server page fetches data + serializes dates, renders a *-client.tsx component that manages filter/interaction state
+- Pure filter functions (applyFilters) exported from filter components — testable without React, reusable server-side
+- Tax summary always computed on full dataset (not filtered subset) — filters only affect the table view
 
 ---
 
@@ -225,4 +228,16 @@ Started: 2026-03-02T22:35:00+01:00
 - All 501 tests pass (476 existing + 25 new), typecheck passes clean
 - Files changed: lib/tob-tax.ts, lib/actions/execution-log.ts, lib/actions/decision.ts, __tests__/tob-tax.test.ts, __tests__/execution-log-actions.test.ts
 - **Learnings:** Pure tax calculation functions with rates/caps in a record type make it trivial to add new instrument types. Tax integration point is in executeDecision — single source of truth for when tax is computed.
+---
+
+## 2026-03-03 00:55 - US-016: Execution Log tab UI with tax summary
+- Created `components/execution-log/execution-table.tsx`: table with Date, Symbol, Type (BUY/SELL badge), Quantity, Price, Total, TOB Rate (%), TOB Tax (€) columns; empty state; formatCurrency, formatPercentage, formatDate, getTypeBadgeColor helpers
+- Created `components/execution-log/tax-summary.tsx`: 3-card grid showing YTD TOB Tax, Total Executions, Total Traded Volume; calculateTaxSummary pure function filters by year, rounds to cents
+- Created `components/execution-log/execution-filters.tsx`: symbol search, from/to date inputs, Apply/Clear buttons; applyFilters pure function for client-side filtering (case-insensitive symbol, date range)
+- Created `components/execution-log/execution-log-client.tsx`: client wrapper managing filter state, passes filtered logs to table and all logs to tax summary
+- Updated `app/dashboard/execution-log/page.tsx`: async server component calling getExecutionLogs, serializing dates to ISO strings, error state handling, renders ExecutionLogClient
+- Created `__tests__/execution-log-tab.test.ts` with 71 tests: table structure (15), formatCurrency (2), formatPercentage (4), formatDate (1), getTypeBadgeColor (3), tax summary structure (10), calculateTaxSummary logic (5), filters structure (9), applyFilters logic (8), client component (7), page structure (7)
+- All 572 tests pass (501 existing + 71 new), typecheck passes clean
+- Files changed: components/execution-log/execution-table.tsx, components/execution-log/tax-summary.tsx, components/execution-log/execution-filters.tsx, components/execution-log/execution-log-client.tsx, app/dashboard/execution-log/page.tsx, __tests__/execution-log-tab.test.ts
+- **Learnings:** Client wrapper pattern for tab pages: server component fetches + serializes, client component manages interactive state (filters). Tax summary computed on all logs (not filtered) to always show YTD totals. Pure filter functions exported separately for testability without React rendering.
 ---
