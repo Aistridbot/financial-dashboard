@@ -1,0 +1,215 @@
+# Progress Log
+Run: 9d1140df-da72-4d0b-876f-8b730e286676
+Task: Build personal investment decision dashboard
+Started: 2026-03-02T22:35:00+01:00
+
+## Codebase Patterns
+- Project uses Next.js 14 with App Router, TypeScript, Tailwind, shadcn/ui
+- Tests use `node:test` + `tsx --test __tests__/**/*.test.ts`
+- Test files use `__dirname` (not `import.meta.dirname`) because tsx runs as CJS
+- Path alias `@/*` maps to project root (tsconfig paths)
+- Prisma 5.x with SQLite, db file at `.data/financial.db`
+- Singleton PrismaClient in `lib/db.ts` (globalThis pattern for dev hot-reload)
+- Scripts: `npm run migrate` (prisma migrate dev), `npm run db:push` (prisma db push), `npm run db:seed` (tsx prisma/seed.ts)
+- `.gitignore` excludes `.data/*.db`, `node_modules/`, `.next/`, `.env*`
+- Server actions go in `lib/actions/` with `'use server'` directive at file top
+- ActionResult<T> pattern: `{ success: true, data: T } | { success: false, error: string }` for typed error handling
+- Seed data uses deterministic IDs prefixed with `seed-` for easy identification
+- Server action tests work without Next.js runtime — 'use server' is a no-op when imported directly
+- Test cleanup: use `deleteMany` with prefix filter on IDs (e.g., `txn-test-*`) for isolation
+- Pure calculation functions in `lib/calculations.ts` — no DB deps, easy to test separately
+- Holding updates are always done through `createTransaction` (atomic via `prisma.$transaction`)
+- `getHoldings` accepts optional `currentPrices` map for computed fields (currentValue, gainLoss)
+- Symbol normalization: `.trim().toUpperCase()` in transaction creation
+- Pure utility modules (like csv-parser.ts, finnhub.ts, risk.ts, sentiment.ts, quote-cache.ts) go in `lib/` directly, not in `lib/actions/`
+- CSV parser uses simple split-based parsing with quoted field support — no external deps
+- Import actions reuse existing server actions (e.g., `createTransaction`) for consistency rather than raw Prisma calls
+- API client types go in `lib/types/` — separate type files per external API
+- FinnhubClient uses mock mode when API key is unset — deterministic data seeded from symbol chars
+- Rate limiting: sliding-window approach with `RateLimiter` class (reusable for other APIs)
+- Static helper methods on client class (mapQuote, mapNewsItem, mockQuote, etc.) for easy testing
+- Risk calculations use HoldingInput interface (symbol, quantity, avgCostBasis, optional currentPrice) — decoupled from Prisma model
+- Concentration thresholds: >40% = HIGH, >25% = MEDIUM, otherwise LOW (strict greater-than, not >=)
+- Diversification score uses weighted formula: 40% position count (asymptotic) + 60% Shannon entropy evenness
+- Dashboard uses App Router nested layouts: app/dashboard/layout.tsx wraps all tab pages
+- Dashboard layout is a client component ("use client") because it uses `usePathname` for active tab highlighting
+- Tab pages are server components by default — only the layout needs client-side interop
+- shadcn/ui components live in `components/ui/` — installed via `npx shadcn@latest add <component>`
+- Dashboard navigation uses Link + pathname matching (not Tabs component) for proper URL-based routing
+- Active tab detection: `pathname?.startsWith(tab.href)` — works for nested routes under each tab
+- Tab page tests use filesystem checks (fs.existsSync + readFileSync) — no React rendering needed for structure validation
+- Feature components go in `components/<feature>/` (e.g., `components/portfolio/`) — separate from `components/ui/`
+- Per-holding concentration risk uses same thresholds as portfolio-level risk (>40 HIGH, >25 MEDIUM)
+- Reusable `getRiskBadgeColor(risk)` helper maps LOW→green, MEDIUM→yellow, HIGH→red (defined in each component)
+- Portfolio page is async server component — fetches data directly, no client-side state needed
+- `formatCurrency` helper with Intl.NumberFormat for consistent EUR formatting across components
+- Client components ("use client") for interactive forms; server components for data fetching pages
+- Pattern: PortfolioActions wrapper embeds form + CSV dialogs, calls router.refresh() on success to re-render server component
+- Dialog pattern: controlled open state + DialogTrigger for buttons, DialogContent for forms
+- Form validation: export pure `validateXxxForm` function for testability, use it in the component's handleSubmit
+- shadcn/ui Select, Dialog, Label components installed for form UI
+- Signal engine uses strategy pattern: `SignalStrategy` function type, `DEFAULT_STRATEGIES` array, highest-confidence wins
+- Signal actions use same ActionResult<T> pattern and symbol normalization as other actions
+- Test isolation for signals: prefix `source` field with `sig-test-` and deleteMany on that prefix
+- Server→Client data: serialize Prisma Date fields to ISO strings when passing from server components to client components (Date objects aren't serializable across the boundary)
+- Decision queue duplicate guard: check for existing PENDING item before creating new DecisionQueueItem for a signal
+- State machine pattern for workflow status: define VALID_TRANSITIONS map, check before any status update
+- Decision actions use `prisma.$transaction` for atomic multi-model updates (e.g., executeDecision creates ExecutionLog + updates status)
+- Test isolation for decisions: use test signal prefix (`dec-test-`) on source field, cascade delete from signals → decisions → execution logs
+- Decision card conditional buttons: derive boolean flags (isPending, isApproved) from status, render action sections with `{flag && (...)}` — REJECTED/EXECUTED have no flags so no buttons
+- Decision list dialog pattern: lift dialog state (open, action, decisionId, symbol) to list parent, pass confirm callback to dialog, call server actions in parent
+- Status filter tabs: simple button list with `role="tablist"`, activeTab state, `filterByStatus` pure function for testability
+- Belgian TOB tax: pure function in `lib/tob-tax.ts`, rates/caps in a record keyed by InstrumentType — easy to extend
+- TOB tax integration: `executeDecision` calls `calculateTOBTax` at execution time, stores rate+amount on ExecutionLog
+- Test isolation for execution logs: prefix IDs with `exlog-test-`, clean up signals → decisions → logs
+- Client wrapper pattern for interactive tabs: server page fetches data + serializes dates, renders a *-client.tsx component that manages filter/interaction state
+- Pure filter functions (applyFilters) exported from filter components — testable without React, reusable server-side
+- Tax summary always computed on full dataset (not filtered subset) — filters only affect the table view
+- Sentiment scoring: keyword-based with Finnhub override; `scoreSentiment(headline, summary?, finnhubScore?)` returns `{ label, score }`
+- News dedup: check existing by URL+symbol before inserting to avoid duplicates on re-fetch
+- Use `prisma.holding.findMany({ distinct: ['symbol'] })` to get unique symbols across all portfolios (avoids needing portfolioId)
+- Avoid `[...new Set()]` spread — use `Array.from(new Set())` for TS target compatibility
+- **Server action files ('use server') can only export async functions** — sync helpers must go in separate non-action modules (e.g., `lib/quote-cache.ts`)
+- Quote cache uses globalThis pattern (same as PrismaClient singleton) for dev hot-reload persistence
+- `buildPriceMap(symbols)` converts cached quotes to `Record<string, number>` compatible with `getHoldings` currentPrices param
+- `isQuoteStale(quote, now?)` with 5-min threshold; accepts optional `now` for deterministic testing
+- Signal deduplication: check for existing unexpired signal (expiresAt null or > now) with same symbol+direction before creating
+- Existing tests may check for exact string presence in files — when renaming variables, ensure backward compat (e.g., keep `result.success` instead of `signalsResult.success`)
+- Generate signals flow: holdings → refreshQuotes → signal engine → dedup check → store with 24h expiry
+
+---
+
+## 2026-03-02 22:35 - US-002: Install Prisma and define core database schema
+- Installed prisma@5.22.0 and @prisma/client@5.22.0
+- Created `prisma/schema.prisma` with SQLite datasource pointing to `.data/financial.db`
+- Defined all 7 models: Portfolio, Holding, Transaction, Signal, DecisionQueueItem, ExecutionLog, NewsItem
+- All models have proper relations, indexes, and cascade deletes
+- Created `lib/db.ts` with singleton PrismaClient export (globalThis pattern)
+- Added package.json scripts: migrate, db:push, db:generate, db:studio
+- Ran `npx prisma generate` and `npx prisma db push` successfully
+- Updated `.gitignore` to exclude `.data/*.db` files
+- Files changed: prisma/schema.prisma, lib/db.ts, package.json, package-lock.json, .gitignore, __tests__/prisma-schema.test.ts
+- **Learnings:** Prisma 7 changed datasource config (requires prisma.config.ts), so pinned to v5.x for stability. tsx test runner uses CJS so `__dirname` works but `import.meta.dirname` doesn't.
+---
+
+## 2026-03-02 22:45 - US-003: Seed script and Portfolio CRUD server actions
+- Created `prisma/seed.ts` with deterministic demo data: 2 portfolios (Tech Growth, Dividend Income), 5 holdings, 6 transactions
+- Added `db:seed` script to package.json using tsx
+- Created `lib/actions/portfolio.ts` with 5 server actions: getPortfolios, getPortfolio, createPortfolio, updatePortfolio, deletePortfolio
+- All actions use `'use server'` file-level directive
+- ActionResult<T> discriminated union for typed success/error responses
+- Input validation: rejects empty/whitespace names, defaults baseCurrency to EUR
+- getPortfolio includes holdings and transactions via Prisma include
+- Created `__tests__/portfolio-actions.test.ts` with 13 tests covering full CRUD cycle + edge cases
+- All 32 tests pass, typecheck passes
+- Files changed: prisma/seed.ts, lib/actions/portfolio.ts, __tests__/portfolio-actions.test.ts, package.json
+- **Learnings:** 'use server' directive at file top is a no-op outside Next.js runtime, so server actions can be tested as regular async functions without mocking.
+---
+
+## 2026-03-02 22:55 - US-004: Transaction and Holding server actions with position calculation
+- Created `lib/calculations.ts` with 3 pure functions: calculateAvgCostBasis, calculatePositionValue, calculateGainLoss
+- Created `lib/actions/transaction.ts` with getTransactions and createTransaction (atomic holding update via prisma.$transaction)
+- Created `lib/actions/holding.ts` with getHoldings (optional currentPrices for computed fields)
+- All 55 tests pass, typecheck passes clean
+- Files changed: lib/calculations.ts, lib/actions/transaction.ts, lib/actions/holding.ts, __tests__/calculations.test.ts, __tests__/transaction-actions.test.ts
+---
+
+## 2026-03-02 23:05 - US-005: CSV import parser for portfolio transactions
+- Created `lib/csv-parser.ts` with `parseTransactionCSV(csvString)` function
+- Created `lib/actions/import.ts` with `importTransactions(portfolioId, csvString)` server action
+- All 87 tests pass, typecheck and build pass clean
+- Files changed: lib/csv-parser.ts, lib/actions/import.ts, __tests__/csv-parser.test.ts, __tests__/import-actions.test.ts
+---
+
+## 2026-03-02 23:15 - US-006: Finnhub API client with quote and news endpoints
+- Created `lib/types/finnhub.ts` with typed interfaces
+- Created `lib/finnhub.ts` with FinnhubClient class (mock mode, rate limiting, symbol normalization)
+- All 105 tests pass, typecheck and build pass clean
+- Files changed: lib/types/finnhub.ts, lib/finnhub.ts, __tests__/finnhub.test.ts
+---
+
+## 2026-03-02 23:25 - US-007: Risk indicator calculations for portfolio holdings
+- Created `lib/risk.ts` with calculateConcentration, calculateDiversificationScore, calculatePortfolioRisk
+- All 131 tests pass, typecheck clean
+- Files changed: lib/risk.ts, __tests__/risk.test.ts
+---
+
+## 2026-03-02 23:35 - US-008: Dashboard shell with tab navigation layout
+- Installed shadcn/ui components: tabs, card, button, badge, input, table
+- Created `app/dashboard/layout.tsx`, `app/dashboard/page.tsx`, 5 tab pages
+- All 162 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-02 23:45 - US-009: Portfolio tab — holdings table and summary cards
+- Created `components/portfolio/portfolio-summary.tsx`, `components/portfolio/holdings-table.tsx`
+- Updated `app/dashboard/portfolio/page.tsx`
+- All 219 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-02 23:55 - US-010: Portfolio tab — add transaction form and CSV upload
+- Created `components/portfolio/add-transaction-form.tsx`, `csv-upload.tsx`, `portfolio-actions.tsx`
+- All 279 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 00:05 - US-011: Signal model server actions and signal generation logic
+- Created `lib/actions/signal.ts`, `lib/signal-engine.ts`
+- All 323 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 00:15 - US-012: Signals tab UI with signal cards and filters
+- Created `components/signals/signal-card.tsx`, `signal-filters.tsx`, `signal-list.tsx`
+- Created `lib/actions/decision-queue.ts`
+- All 387 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 00:25 - US-013: Decision Queue server actions and approval workflow
+- Created `lib/actions/decision.ts` with state machine transitions
+- All 409 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 00:35 - US-014: Decision Queue tab UI with approval workflow
+- Created `components/decisions/decision-card.tsx`, `decision-detail-dialog.tsx`, `decision-list.tsx`
+- All 476 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 00:45 - US-015: Execution Log with TOB tax calculation
+- Created `lib/tob-tax.ts`, `lib/actions/execution-log.ts`
+- Updated `lib/actions/decision.ts` for TOB tax integration
+- All 501 tests pass, typecheck passes clean
+---
+
+## 2026-03-03 00:55 - US-016: Execution Log tab UI with tax summary
+- Created `components/execution-log/execution-table.tsx`, `tax-summary.tsx`, `execution-filters.tsx`, `execution-log-client.tsx`
+- All 572 tests pass, typecheck passes clean
+---
+
+## 2026-03-03 01:10 - US-017: News tab with Finnhub feed and sentiment display
+- Created `lib/sentiment.ts`, `lib/actions/news.ts`, `components/news/news-card.tsx`, `news-filters.tsx`, `news-feed.tsx`
+- Updated `app/dashboard/news/page.tsx`
+- All 635 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 01:15 - US-018: Live quote integration for portfolio holdings
+- Created `lib/quote-cache.ts`, `lib/actions/quotes.ts`, `components/portfolio/refresh-quotes-button.tsx`
+- Updated portfolio page and holdings table for live quote indicators
+- All 679 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 01:25 - US-019: Auto-generate signals from portfolio and refresh workflow
+- Created `lib/actions/generate-signals.ts`: `generateAndStoreSignals(portfolioId, source?)` server action
+  - Fetches holdings → refreshes quotes → runs signal engine → deduplicates → stores with 24h expiry
+  - Dedup logic: skips signal if unexpired signal with same symbol+direction exists (expiresAt null or > now)
+  - Returns `{ generated, skippedDuplicates, errors }` for UI feedback
+- Created `components/signals/generate-signals-button.tsx`: client component with loading state, result message, router.refresh()
+- Updated `app/dashboard/signals/page.tsx`: fetches portfolios, passes first portfolio ID to GenerateSignalsButton
+- Created `__tests__/generate-signals.test.ts` with 24 tests:
+  - generateAndStoreSignals: empty ID validation, empty portfolio, signal generation, expiry setting, custom source (5)
+  - Deduplication: skip unexpired duplicates, allow expired, skip null-expiry (3)
+  - Decision queue integration: create from generated signal, prevent duplicate queue items (2)
+  - Component structure: button existence, client directive, exports, props, action usage, test IDs (6)
+  - Page structure: imports GenerateSignalsButton, getPortfolios, passes portfolioId (3)
+  - Module structure: exists, use server, exports, imports, dedup tracking (5)
+- All 703 tests pass (679 existing + 24 new), typecheck and build pass clean
+- Files changed: lib/actions/generate-signals.ts, components/signals/generate-signals-button.tsx, app/dashboard/signals/page.tsx, __tests__/generate-signals.test.ts
+- **Learnings:** Existing tests may check for exact string patterns in source files — be careful with variable renaming (e.g., `result.success` vs `signalsResult.success`). Signal dedup uses Prisma OR clause for expiry check: `[{expiresAt: null}, {expiresAt: {gt: now}}]`.
+---

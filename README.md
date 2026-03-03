@@ -1,133 +1,107 @@
-# Financial Dashboard MVP
+# Financial Dashboard
 
-Professional financial analysis dashboard MVP with:
-- Stock data API endpoints
-- Portfolio / holdings / transactions APIs
-- Dashboard summary cards + transactions table + create transaction form
-- End-to-end integration coverage
+A personal investment decision dashboard built with Next.js, Prisma/SQLite, shadcn/ui, and Finnhub API.
 
-## Prerequisites
+## Features
+
+| Tab | Description |
+|-----|-------------|
+| **Portfolio** | Manual transaction entry, CSV import, holdings table with live quotes, risk indicators |
+| **Signals** | AI-generated trading signals from portfolio analysis with strategy pattern |
+| **Decision Queue** | Approval workflow: review signals → approve/reject → execute |
+| **Execution Log** | Trade execution history with Belgian TOB tax tracking |
+| **News** | Finnhub company news feed with keyword-based sentiment analysis |
+
+## Quick Start
+
+### Prerequisites
 
 - Node.js 20+
 - npm 10+
 
-## Setup
+### Setup
 
 ```bash
+# Install dependencies
 npm install
-```
 
-## Database lifecycle (local)
+# Set up environment (optional — works without API key in mock mode)
+cp .env.example .env.local
+# Edit .env.local and add your Finnhub API key (optional)
 
-Run migrations:
+# Initialize the database
+npx prisma db push
 
-```bash
-npm run migrate
-```
+# Seed with demo data (optional)
+npm run db:seed
 
-Seed deterministic demo data:
-
-```bash
-npm run seed
-```
-
-> Optional: set `FINANCIAL_DB_PATH` to override the default SQLite location (`.data/financial.db`).
-
-## Run the app
-
-Development mode:
-
-```bash
+# Start the dev server
 npm run dev
 ```
 
-Production-style start:
+Open [http://localhost:3000/dashboard](http://localhost:3000/dashboard) in your browser.
 
-```bash
-npm run start
+## Environment Variables
+
+Create a `.env.local` file in the project root (see `.env.example` for reference):
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `FINNHUB_API_KEY` | No | — | Finnhub API key for live market data. Without it, the app uses deterministic mock data. |
+| `DATABASE_URL` | No | `file:../.data/financial.db` | SQLite database path (set in `prisma/schema.prisma`) |
+
+> **Note:** The dashboard works fully without any environment variables. Mock mode provides deterministic data for development and testing.
+
+## npm Scripts
+
+| Script | Command | Description |
+|--------|---------|-------------|
+| `dev` | `next dev` | Start development server |
+| `build` | `next build` | Production build |
+| `start` | `next start` | Start production server |
+| `lint` | `next lint` | Run ESLint |
+| `typecheck` | `tsc --noEmit` | TypeScript type checking |
+| `test` | `tsx --test __tests__/**/*.test.ts` | Run all tests |
+| `verify:guarded` | `npm run build && npm test && npm run typecheck` | Full CI-style verification |
+| `migrate` | `prisma migrate dev` | Create and apply database migration |
+| `db:push` | `prisma db push` | Push schema to database (dev) |
+| `db:generate` | `prisma generate` | Regenerate Prisma client |
+| `db:studio` | `prisma studio` | Open Prisma database GUI |
+| `db:seed` | `tsx prisma/seed.ts` | Seed database with demo data |
+
+## Project Structure
+
+```
+├── app/dashboard/          # Next.js App Router pages (5 tabs)
+├── components/             # React components organized by feature
+│   ├── ui/                 # shadcn/ui primitives
+│   ├── portfolio/          # Portfolio tab components
+│   ├── signals/            # Signals tab components
+│   ├── decisions/          # Decision Queue components
+│   ├── execution-log/      # Execution Log components
+│   └── news/               # News tab components
+├── lib/                    # Business logic and utilities
+│   ├── actions/            # Server actions ('use server')
+│   ├── types/              # TypeScript type definitions
+│   └── *.ts                # Pure functions (calculations, risk, tax, etc.)
+├── prisma/                 # Database schema and seed data
+├── __tests__/              # All test files
+└── docs/                   # Documentation
 ```
 
-Dashboard URL:
-- `http://localhost:3000/dashboard`
+## Documentation
 
-## Quality and verification commands
+- [Architecture Overview](docs/ARCHITECTURE.md) — System design, tech stack, data flow
+- [Database Schema](docs/DATABASE.md) — All Prisma models with field descriptions
+- [API Reference](docs/API.md) — Server actions with parameters and return types
+- [Extending Guide](docs/EXTENDING.md) — How to add tabs, strategies, tax regimes, data sources
+- [Finnhub Integration](docs/FINNHUB.md) — API setup, rate limits, mock mode
 
-Typecheck:
+## Tech Stack
 
-```bash
-npm run typecheck
-```
-
-Build:
-
-```bash
-npm run build
-```
-
-Tests:
-
-```bash
-npm test
-```
-
-Guarded local/CI sequence (build -> test -> typecheck):
-
-```bash
-npm run verify:guarded
-```
-
-## Implemented API routes and behavior
-
-### Stock data
-
-- `GET /api/stocks/quote?symbol=AAPL`
-  - Returns quote payload:
-    - `symbol`, `name`, `price`, `previousClose`, `change`, `changePercent`, `asOf`
-  - Validation errors use: `{ "error": { "code", "message", "details?" } }`
-
-- `GET /api/stocks/history?symbol=AAPL&range=1M`
-  - Supported ranges: `1D`, `5D`, `1M`, `6M`, `1Y`
-  - Returns history payload:
-    - `symbol`, `range`, `points[]` where each point has `date`, `open`, `high`, `low`, `close`, `volume`
-
-### Portfolios
-
-- `GET /api/portfolios`
-- `POST /api/portfolios`
-  - Body: `{ "name": "Core", "baseCurrency": "USD" }`
-- `GET /api/portfolios/:id`
-- `PATCH /api/portfolios/:id`
-  - Allowed fields: `name`, `baseCurrency`
-- `DELETE /api/portfolios/:id` (returns `204` on success)
-
-### Holdings and transactions
-
-- `GET /api/portfolios/:id/holdings`
-- `GET /api/portfolios/:id/transactions`
-- `POST /api/portfolios/:id/transactions`
-  - Body: `{ "symbol", "type", "quantity", "price", "occurredAt" }`
-  - `type` supports `BUY`/`SELL`
-  - Server computes and persists derived position updates atomically
-
-### Dashboard summary
-
-- `GET /api/dashboard/summary?portfolioId=<id>`
-  - Returns:
-    - `portfolioId`, `totalValue`, `investedValue`, `dayChange`, `totalGainLoss`, `positionsCount`
-    - optional `warnings[]` when quote fallbacks are used
-
-## Implemented dashboard UI features
-
-- `/dashboard` renders:
-  - Summary cards: total value, invested value, day change, gain/loss
-  - Portfolio selector
-  - Transactions table (date, symbol, side, quantity, price, total)
-  - Create transaction form with validation feedback
-- `/dashboard.js` client flow:
-  - Loads portfolios
-  - Loads summary + transactions for selected portfolio
-  - Submits transactions and refreshes summary/table on success
-
-## PR review checklist
-
-See [docs/PR_CHECKLIST.md](docs/PR_CHECKLIST.md) for mechanically verifiable MVP checks.
+- **Framework:** Next.js 14 (App Router)
+- **Language:** TypeScript 5
+- **Database:** SQLite via Prisma ORM 5
+- **UI:** shadcn/ui + Radix UI + Tailwind CSS 3
+- **Market Data:** Finnhub API (with mock fallback)
+- **Testing:** node:test + tsx
