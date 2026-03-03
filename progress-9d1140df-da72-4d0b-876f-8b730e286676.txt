@@ -73,6 +73,9 @@ Started: 2026-03-02T22:35:00+01:00
 - Quote cache uses globalThis pattern (same as PrismaClient singleton) for dev hot-reload persistence
 - `buildPriceMap(symbols)` converts cached quotes to `Record<string, number>` compatible with `getHoldings` currentPrices param
 - `isQuoteStale(quote, now?)` with 5-min threshold; accepts optional `now` for deterministic testing
+- Signal deduplication: check for existing unexpired signal (expiresAt null or > now) with same symbol+direction before creating
+- Existing tests may check for exact string presence in files — when renaming variables, ensure backward compat (e.g., keep `result.success` instead of `signalsResult.success`)
+- Generate signals flow: holdings → refreshQuotes → signal engine → dedup check → store with 24h expiry
 
 ---
 
@@ -187,13 +190,26 @@ Started: 2026-03-02T22:35:00+01:00
 ---
 
 ## 2026-03-03 01:15 - US-018: Live quote integration for portfolio holdings
-- Created `lib/quote-cache.ts`: in-memory quote cache with globalThis persistence, staleness tracking (5-min threshold), `buildPriceMap()` for `getHoldings` integration, `getQuoteStaleness()` for UI indicators
-- Created `lib/actions/quotes.ts`: `refreshQuotes(symbols)` server action that fetches from FinnhubClient, caches results, reports per-symbol errors
-- Created `components/portfolio/refresh-quotes-button.tsx`: client component with loading state, error display, calls refreshQuotes + router.refresh()
-- Updated `app/dashboard/portfolio/page.tsx`: integrates live quotes via buildPriceMap, shows stale/missing warning banner, passes symbols to RefreshQuotesButton
-- Updated `components/portfolio/holdings-table.tsx`: added `quoteStale` and `quoteMissing` fields to HoldingRow, renders ⚠ for missing and ⏳ for stale quotes
-- Created `__tests__/quotes.test.ts` with 44 tests: refreshQuotes (7), getCachedQuote (3), getAllCachedQuotes (2), clearQuoteCache (1), isQuoteStale (3), buildPriceMap (4), getQuoteStaleness (3), holdings enrichment (3), RefreshQuotesButton structure (8), portfolio page structure (6), HoldingsTable indicators (4)
-- All 679 tests pass (635 existing + 44 new), typecheck and build pass clean
-- Files changed: lib/quote-cache.ts, lib/actions/quotes.ts, components/portfolio/refresh-quotes-button.tsx, app/dashboard/portfolio/page.tsx, components/portfolio/holdings-table.tsx, __tests__/quotes.test.ts
-- **Learnings:** Server action files with 'use server' directive can ONLY export async functions — sync utility helpers must be in separate non-action modules. Quote cache uses same globalThis singleton pattern as PrismaClient.
+- Created `lib/quote-cache.ts`, `lib/actions/quotes.ts`, `components/portfolio/refresh-quotes-button.tsx`
+- Updated portfolio page and holdings table for live quote indicators
+- All 679 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 01:25 - US-019: Auto-generate signals from portfolio and refresh workflow
+- Created `lib/actions/generate-signals.ts`: `generateAndStoreSignals(portfolioId, source?)` server action
+  - Fetches holdings → refreshes quotes → runs signal engine → deduplicates → stores with 24h expiry
+  - Dedup logic: skips signal if unexpired signal with same symbol+direction exists (expiresAt null or > now)
+  - Returns `{ generated, skippedDuplicates, errors }` for UI feedback
+- Created `components/signals/generate-signals-button.tsx`: client component with loading state, result message, router.refresh()
+- Updated `app/dashboard/signals/page.tsx`: fetches portfolios, passes first portfolio ID to GenerateSignalsButton
+- Created `__tests__/generate-signals.test.ts` with 24 tests:
+  - generateAndStoreSignals: empty ID validation, empty portfolio, signal generation, expiry setting, custom source (5)
+  - Deduplication: skip unexpired duplicates, allow expired, skip null-expiry (3)
+  - Decision queue integration: create from generated signal, prevent duplicate queue items (2)
+  - Component structure: button existence, client directive, exports, props, action usage, test IDs (6)
+  - Page structure: imports GenerateSignalsButton, getPortfolios, passes portfolioId (3)
+  - Module structure: exists, use server, exports, imports, dedup tracking (5)
+- All 703 tests pass (679 existing + 24 new), typecheck and build pass clean
+- Files changed: lib/actions/generate-signals.ts, components/signals/generate-signals-button.tsx, app/dashboard/signals/page.tsx, __tests__/generate-signals.test.ts
+- **Learnings:** Existing tests may check for exact string patterns in source files — be careful with variable renaming (e.g., `result.success` vs `signalsResult.success`). Signal dedup uses Prisma OR clause for expiry check: `[{expiresAt: null}, {expiresAt: {gt: now}}]`.
 ---
