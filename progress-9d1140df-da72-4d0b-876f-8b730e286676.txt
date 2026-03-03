@@ -21,7 +21,7 @@ Started: 2026-03-02T22:35:00+01:00
 - Holding updates are always done through `createTransaction` (atomic via `prisma.$transaction`)
 - `getHoldings` accepts optional `currentPrices` map for computed fields (currentValue, gainLoss)
 - Symbol normalization: `.trim().toUpperCase()` in transaction creation
-- Pure utility modules (like csv-parser.ts, finnhub.ts, risk.ts, sentiment.ts) go in `lib/` directly, not in `lib/actions/`
+- Pure utility modules (like csv-parser.ts, finnhub.ts, risk.ts, sentiment.ts, quote-cache.ts) go in `lib/` directly, not in `lib/actions/`
 - CSV parser uses simple split-based parsing with quoted field support — no external deps
 - Import actions reuse existing server actions (e.g., `createTransaction`) for consistency rather than raw Prisma calls
 - API client types go in `lib/types/` — separate type files per external API
@@ -69,6 +69,10 @@ Started: 2026-03-02T22:35:00+01:00
 - News dedup: check existing by URL+symbol before inserting to avoid duplicates on re-fetch
 - Use `prisma.holding.findMany({ distinct: ['symbol'] })` to get unique symbols across all portfolios (avoids needing portfolioId)
 - Avoid `[...new Set()]` spread — use `Array.from(new Set())` for TS target compatibility
+- **Server action files ('use server') can only export async functions** — sync helpers must go in separate non-action modules (e.g., `lib/quote-cache.ts`)
+- Quote cache uses globalThis pattern (same as PrismaClient singleton) for dev hot-reload persistence
+- `buildPriceMap(symbols)` converts cached quotes to `Record<string, number>` compatible with `getHoldings` currentPrices param
+- `isQuoteStale(quote, now?)` with 5-min threshold; accepts optional `now` for deterministic testing
 
 ---
 
@@ -177,14 +181,19 @@ Started: 2026-03-02T22:35:00+01:00
 ---
 
 ## 2026-03-03 01:10 - US-017: News tab with Finnhub feed and sentiment display
-- Created `lib/sentiment.ts`: keyword-based sentiment scoring with Finnhub override, exports `scoreSentiment()` and `getSentimentBadgeColor()`
-- Created `lib/actions/news.ts`: `fetchAndStoreNews(symbols)` fetches from FinnhubClient, scores sentiment, stores in DB with dedup; `getNews(filters?)` reads with optional symbol/sentiment/date filters
-- Created `components/news/news-card.tsx`: card with headline link, source, date, symbol badge, color-coded sentiment badge (green/red/gray), summary snippet
-- Created `components/news/news-filters.tsx`: symbol dropdown, sentiment dropdown, date range inputs, Apply/Clear buttons; exports `applyNewsFilters()` pure function
-- Created `components/news/news-feed.tsx`: scrollable feed with filters, empty state, item count display
-- Updated `app/dashboard/news/page.tsx`: async server component fetching news + unique symbols from holdings, serializes dates, renders NewsFeed
-- Created `__tests__/news-tab.test.ts` with 63 tests: sentiment scoring (12), badge colors (3), news actions (7), card structure (11), formatNewsDate (1), filters structure (8), applyNewsFilters (7), feed structure (8), page structure (6)
-- All 635 tests pass (572 existing + 63 new), typecheck and build pass clean
-- Files changed: lib/sentiment.ts, lib/actions/news.ts, components/news/news-card.tsx, components/news/news-filters.tsx, components/news/news-feed.tsx, app/dashboard/news/page.tsx, __tests__/news-tab.test.ts
-- **Learnings:** Use `Array.from(new Set())` instead of spread for TS target compatibility. `prisma.holding.findMany({ distinct: ['symbol'] })` gets unique symbols without needing portfolioId. News dedup by URL+symbol prevents duplicates on re-fetch.
+- Created `lib/sentiment.ts`, `lib/actions/news.ts`, `components/news/news-card.tsx`, `news-filters.tsx`, `news-feed.tsx`
+- Updated `app/dashboard/news/page.tsx`
+- All 635 tests pass, typecheck and build pass clean
+---
+
+## 2026-03-03 01:15 - US-018: Live quote integration for portfolio holdings
+- Created `lib/quote-cache.ts`: in-memory quote cache with globalThis persistence, staleness tracking (5-min threshold), `buildPriceMap()` for `getHoldings` integration, `getQuoteStaleness()` for UI indicators
+- Created `lib/actions/quotes.ts`: `refreshQuotes(symbols)` server action that fetches from FinnhubClient, caches results, reports per-symbol errors
+- Created `components/portfolio/refresh-quotes-button.tsx`: client component with loading state, error display, calls refreshQuotes + router.refresh()
+- Updated `app/dashboard/portfolio/page.tsx`: integrates live quotes via buildPriceMap, shows stale/missing warning banner, passes symbols to RefreshQuotesButton
+- Updated `components/portfolio/holdings-table.tsx`: added `quoteStale` and `quoteMissing` fields to HoldingRow, renders ⚠ for missing and ⏳ for stale quotes
+- Created `__tests__/quotes.test.ts` with 44 tests: refreshQuotes (7), getCachedQuote (3), getAllCachedQuotes (2), clearQuoteCache (1), isQuoteStale (3), buildPriceMap (4), getQuoteStaleness (3), holdings enrichment (3), RefreshQuotesButton structure (8), portfolio page structure (6), HoldingsTable indicators (4)
+- All 679 tests pass (635 existing + 44 new), typecheck and build pass clean
+- Files changed: lib/quote-cache.ts, lib/actions/quotes.ts, components/portfolio/refresh-quotes-button.tsx, app/dashboard/portfolio/page.tsx, components/portfolio/holdings-table.tsx, __tests__/quotes.test.ts
+- **Learnings:** Server action files with 'use server' directive can ONLY export async functions — sync utility helpers must be in separate non-action modules. Quote cache uses same globalThis singleton pattern as PrismaClient.
 ---
